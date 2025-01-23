@@ -1,15 +1,18 @@
 # CHANGELOG
+## [0.2.0] -2025-1-2023
 
-## [0.1.1] - 2024
-### Added
-- Support for windows added
-
-## [0.1.1] - 2023-10-01
+- **Added Python Support**: Enhanced compatibility by introducing support for Python, allowing for greater flexibility in usage.
+- **Added Windows Support**: Expanded the platform compatibility to include Windows, enabling a wider user base.
+- **Added Fortran Support**: Introduced support for Fortran, catering to users who prefer this programming language.
+- **Fixed Bugs in DefaultLHAPDFReader**: Resolved various issues within the DefaultLHAPDFReader to improve functionality and performance.
+- **Removed Boost TE Dependency**: Eliminated the dependency on Boost TE due to its limitations on Linux and lack of support for Windows, streamlining the installation process.
+- **Fixed Bug in Automatic PDFset Downloader**: Addressed and resolved issues in the automatic PDFset downloader for a smoother user experience.
+## [0.1.1] - 2024-10-01
 ### Fixed
 - Bug fixes related to the PDF set downloader.
 - Improved installation process for easier setup.
 - Removed dependency on yaml-cpp to streamline the project.
 
-## [0.1.0] - 2023-09-15
+## [0.1.0] - 2024-09-15
 ### Added
 - Initial version release.
