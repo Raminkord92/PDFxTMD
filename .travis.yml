@@ -1,44 +1,54 @@
-language: cpp
+# AppVeyor configuration for multi-platform CMake build
+image:
+  - Visual Studio 2019
+  - Ubuntu2004
 
 # Define the matrix for multi-platform builds
-matrix:
-  include:
-    - os: linux
-      dist: focal
-      compiler: gcc
-      env:
-        - BUILD_TYPE=Release
-        - CC=gcc
-        - CXX=g++
-    - os: windows
-      compiler: msvc
-      env:
-        - BUILD_TYPE=Release
-        - CC=cl
-        - CXX=cl
+environment:
+  matrix:
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019
+      BUILD_TYPE: Release
+      CC: cl
+      CXX: cl
+    - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2004
+      BUILD_TYPE: Release
+      CC: gcc
+      CXX: g++
 
 # Cache dependencies to speed up builds
 cache:
-  directories:
-    - $HOME/.cache
+  - C:\ProgramData\chocolatey\bin
+  - C:\ProgramData\chocolatey\lib
+  - /home/appveyor/.cache
 
 # Install dependencies
-before_install:
-  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then
-      sudo apt-get update;
-      sudo apt-get install -y cmake;
-    fi
-  - if [ "$TRAVIS_OS_NAME" = "windows" ]; then
-      choco install cmake;
-    fi
+install:
+  - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Visual Studio 2019" (
+      choco install cmake --installargs "ADD_CMAKE_TO_PATH=System" &&
+      cmake --version
+    )
+  - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Ubuntu2004" (
+      sudo apt-get update &&
+      sudo apt-get install -y cmake
+    )
 
-# Script to configure, build, and test
-script:
+# Build script
+build_script:
   - mkdir build
   - cd build
-  - cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_C_COMPILER=$CC -DCMAKE_CXX_COMPILER=$CXX ..
-  - cmake --build . --config $BUILD_TYPE
-  - ctest --build-config $BUILD_TYPE
+  - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Visual Studio 2019" (
+      cmake -G "Visual Studio 16 2019" -A x64 -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DCMAKE_C_COMPILER=%CC% -DCMAKE_CXX_COMPILER=%CXX% .. &&
+      cmake --build . --config %BUILD_TYPE%
+    )
+  - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Ubuntu2004" (
+      cmake -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -CMAKE_C_COMPILER=%CC% -CMAKE_CXX_COMPILER=%CXX% .. &&
+      cmake --build . --config %BUILD_TYPE%
+    )
+
+# Test script
+test_script:
+  - cd build
+  - ctest --build-config %BUILD_TYPE%
 
 # Trigger builds on push and pull requests to main branch
 branches:
