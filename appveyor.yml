@@ -2,7 +2,7 @@ version: '{build}'
 
 image:
   - Visual Studio 2019
-  - Ubuntu
+  - ubuntu-2204
   - macOS
 
 configuration:
@@ -19,9 +19,14 @@ for:
 
   - matrix:
       only:
-        - image: Ubuntu
+        - image: ubuntu-2204
     before_build:
-      - sh: cmake -DCMAKE_BUILD_TYPE=$CONFIGURATION -B build
+      - sh: sudo apt-get update
+      - sh: sudo apt-get install -y software-properties-common
+      - sh: sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
+      - sh: sudo apt-get update
+      - sh: sudo apt-get install -y g++-13
+      - sh: cmake -DCMAKE_BUILD_TYPE=$CONFIGURATION -DCMAKE_CXX_COMPILER=g++-13 -B build
     build_script:
       - sh: cmake --build build
 
