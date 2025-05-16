@@ -2,7 +2,7 @@ version: '{build}'
 
 image:
   - Visual Studio 2019
-  - ubuntu-2204
+  - Ubuntu
   - macOS
 
 configuration:
@@ -19,7 +19,7 @@ for:
 
   - matrix:
       only:
-        - image: ubuntu-2204
+        - image: Ubuntu
     before_build:
       - sh: sudo apt-get update
       - sh: sudo apt-get install -y software-properties-common
