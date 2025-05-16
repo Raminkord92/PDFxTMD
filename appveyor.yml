@@ -1,51 +1,52 @@
+version: '{build}'
+# Define multiple build environments
 image:
-  - Visual Studio 2019
-  - Ubuntu2004
+  - Visual Studio 2022  # Windows build image
+  - Ubuntu 20.04         # Linux build image
+  - macOS Big Sur        # macOS build image
 
+# You can set global environment variables if needed
 environment:
   matrix:
-    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019
-      BUILD_TYPE: Release
-      CC: cl
-      CXX: cl
-    - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2004
-      BUILD_TYPE: Release
-      CC: gcc
-      CXX: g++
+    - OS: windows
+    - OS: linux
+    - OS: osx
 
-cache:
-  - C:\ProgramData\chocolatey\bin
-  - C:\ProgramData\chocolatey\lib
-  - /home/appveyor/.cache
-
-install:
-  - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Visual Studio 2019" (
-      choco install cmake --installargs "ADD_CMAKE_TO_PATH=System" &&
-      cmake --version
-    )
-  - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Ubuntu2004" (
-      sudo apt-get update &&
-      sudo apt-get install -y cmake
-    )
-
+# Build script: uses PowerShell on Windows, Bash otherwise
 build_script:
-  - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Visual Studio 2019" (
-      cmake -G "Visual Studio 16 2019" -A x64 -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DCMAKE_C_COMPILER=%CC% -DCMAKE_CXX_COMPILER=%CXX% -S . -B build &&
-      cmake --build build --config %BUILD_TYPE%
-    )
-  - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Ubuntu2004" (
-      cmake -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DCMAKE_C_COMPILER=%CC% -DCMAKE_CXX_COMPILER=%CXX% -S . -B build &&
-      cmake --build build --config %BUILD_TYPE%
-    )
+  # Windows (PowerShell)
+  - ps: |
+      if ($env:OS -eq 'windows') {
+        cmake -B build -G "Visual Studio 17 2022" -DCMAKE_BUILD_TYPE=Release -S .
+        cmake --build build --config Release
+      }
+  # Linux & macOS (Bash)
+  - bash: |
+      if [ "$OS" = "linux" ] || [ "$OS" = "osx" ]; then
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -S .
+        cmake --build build --config Release
+      fi
 
+# Test script: run CTest
 test_script:
-  - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Visual Studio 2019" (
-      cd build && ctest --build-config %BUILD_TYPE%
-    )
-  - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Ubuntu2004" (
-      cd build && ctest --build-config %BUILD_TYPE%
-    )
+  - ps: |
+      if ($env:OS -eq 'windows') {
+        cd build
+        ctest -C Release --output-on-failure
+      }
+  - bash: |
+      if [ "$OS" = "linux" ] || [ "$OS" = "osx" ]; then
+        cd build
+        ctest --output-on-failure
+      fi
 
-branches:
-  only:
-    - main
+# Cache CMake and build artifacts to speed up subsequent runs
+cache:
+  - C:\vcpkg                        # if using vcpkg on Windows
+  - build                           # cache local build directory
+
+artifacts:
+  - path: build/Release/*.exe        # Windows executables
+    name: executables
+  - path: build/*.out                # Linux/macOS binaries
+    name: binaries
