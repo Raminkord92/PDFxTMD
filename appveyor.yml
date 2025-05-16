@@ -1,52 +1,34 @@
 version: '{build}'
-# Define multiple build environments
+
 image:
-  - Visual Studio 2022  # Windows build image
-  - Ubuntu 20.04         # Linux build image
-  - macOS Big Sur        # macOS build image
+  - Visual Studio 2019
+  - Ubuntu
+  - macOS
 
-# You can set global environment variables if needed
-environment:
-  matrix:
-    - OS: windows
-    - OS: linux
-    - OS: osx
+configuration:
+  - Release
 
-# Build script: uses PowerShell on Windows, Bash otherwise
-build_script:
-  # Windows (PowerShell)
-  - ps: |
-      if ($env:OS -eq 'windows') {
-        cmake -B build -G "Visual Studio 17 2022" -DCMAKE_BUILD_TYPE=Release -S .
-        cmake --build build --config Release
-      }
-  # Linux & macOS (Bash)
-  - bash: |
-      if [ "$OS" = "linux" ] || [ "$OS" = "osx" ]; then
-        cmake -B build -DCMAKE_BUILD_TYPE=Release -S .
-        cmake --build build --config Release
-      fi
+for:
+  - matrix:
+      only:
+        - image: Visual Studio 2019
+    before_build:
+      - cmake -G "Visual Studio 16 2019" -A x64 -B build
+    build_script:
+      - cmake --build build --config %CONFIGURATION%
 
-# Test script: run CTest
-test_script:
-  - ps: |
-      if ($env:OS -eq 'windows') {
-        cd build
-        ctest -C Release --output-on-failure
-      }
-  - bash: |
-      if [ "$OS" = "linux" ] || [ "$OS" = "osx" ]; then
-        cd build
-        ctest --output-on-failure
-      fi
+  - matrix:
+      only:
+        - image: Ubuntu
+    before_build:
+      - sh: cmake -DCMAKE_BUILD_TYPE=$CONFIGURATION -B build
+    build_script:
+      - sh: cmake --build build
 
-# Cache CMake and build artifacts to speed up subsequent runs
-cache:
-  - C:\vcpkg                        # if using vcpkg on Windows
-  - build                           # cache local build directory
-
-artifacts:
-  - path: build/Release/*.exe        # Windows executables
-    name: executables
-  - path: build/*.out                # Linux/macOS binaries
-    name: binaries
+  - matrix:
+      only:
+        - image: macOS
+    before_build:
+      - sh: cmake -DCMAKE_BUILD_TYPE=$CONFIGURATION -B build
+    build_script:
+      - sh: cmake --build build
