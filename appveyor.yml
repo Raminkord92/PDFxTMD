@@ -1,9 +1,7 @@
-# AppVeyor configuration for multi-platform CMake build
 image:
   - Visual Studio 2019
   - Ubuntu2004
 
-# Define the matrix for multi-platform builds
 environment:
   matrix:
     - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019
@@ -15,13 +13,11 @@ environment:
       CC: gcc
       CXX: g++
 
-# Cache dependencies to speed up builds
 cache:
   - C:\ProgramData\chocolatey\bin
   - C:\ProgramData\chocolatey\lib
   - /home/appveyor/.cache
 
-# Install dependencies
 install:
   - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Visual Studio 2019" (
       choco install cmake --installargs "ADD_CMAKE_TO_PATH=System" &&
@@ -32,25 +28,24 @@ install:
       sudo apt-get install -y cmake
     )
 
-# Build script
 build_script:
-  - mkdir build
-  - cd build
   - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Visual Studio 2019" (
-      cmake -G "Visual Studio 16 2019" -A x64 -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DCMAKE_C_COMPILER=%CC% -DCMAKE_CXX_COMPILER=%CXX% .. &&
-      cmake --build . --config %BUILD_TYPE%
+      cmake -G "Visual Studio 16 2019" -A x64 -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DCMAKE_C_COMPILER=%CC% -DCMAKE_CXX_COMPILER=%CXX% -S . -B build &&
+      cmake --build build --config %BUILD_TYPE%
     )
   - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Ubuntu2004" (
-      cmake -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -CMAKE_C_COMPILER=%CC% -CMAKE_CXX_COMPILER=%CXX% .. &&
-      cmake --build . --config %BUILD_TYPE%
+      cmake -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DCMAKE_C_COMPILER=%CC% -DCMAKE_CXX_COMPILER=%CXX% -S . -B build &&
+      cmake --build build --config %BUILD_TYPE%
     )
 
-# Test script
 test_script:
-  - cd build
-  - ctest --build-config %BUILD_TYPE%
+  - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Visual Studio 2019" (
+      cd build && ctest --build-config %BUILD_TYPE%
+    )
+  - if "%APPVEYOR_BUILD_WORKER_IMAGE%"=="Ubuntu2004" (
+      cd build && ctest --build-config %BUILD_TYPE%
+    )
 
-# Trigger builds on push and pull requests to main branch
 branches:
   only:
     - main
