@@ -13,34 +13,56 @@ for:
       only:
         - image: Visual Studio 2019
     environment:
+      JOB_NAME: Windows-x64
       ARCH: x64
     before_build:
+      - cl.exe
       - cmake -G "Visual Studio 16 2019" -A %ARCH% -B build
     build_script:
       - cmake --build build --config %CONFIGURATION%
+    artifacts:
+      - path: build\Release\PDFxTMDLib.lib
+        name: PDFxTMDLib-x64
 
   - matrix:
       only:
         - image: Visual Studio 2019
     environment:
+      JOB_NAME: Windows-ARM64
       ARCH: ARM64
     before_build:
+      - cl.exe
       - cmake -G "Visual Studio 16 2019" -A %ARCH% -B build
     build_script:
       - cmake --build build --config %CONFIGURATION%
+    artifacts:
+      - path: build\Release\PDFxTMDLib.lib
+        name: PDFxTMDLib-ARM64
 
   - matrix:
       only:
         - image: Ubuntu2204
+    environment:
+      JOB_NAME: Ubuntu
     before_build:
+      - sh: g++ --version
       - sh: cmake -DCMAKE_BUILD_TYPE=$CONFIGURATION -B build
     build_script:
       - sh: cmake --build build
+    artifacts:
+      - path: build/libPDFxTMDLib.a
+        name: PDFxTMDLib-Ubuntu
 
   - matrix:
       only:
         - image: macOS
+    environment:
+      JOB_NAME: macOS
     before_build:
+      - sh: clang++ --version
       - sh: cmake -DCMAKE_BUILD_TYPE=$CONFIGURATION -B build
     build_script:
       - sh: cmake --build build
+    artifacts:
+      - path: build/libPDFxTMDLib.a
+        name: PDFxTMDLib-macOS
