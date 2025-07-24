@@ -10,10 +10,10 @@ void InterpolateQCDCoupling::initialize(const YamlCouplingInfo &couplingInfo)
 {
     m_couplingInfo = couplingInfo;
     m_alsphasVec_vec = couplingInfo.alphas_vec;
-    for (double mu2_ : m_couplingInfo.mu_vec)
+    for (double mu_ : m_couplingInfo.mu_vec)
     {
-        m_mu2_vec.push_back(mu2_);
-        m_logMu2_vec.push_back(std::log(mu2_));
+        m_mu2_vec.push_back(SQR(mu_));
+        m_logMu2_vec.push_back(std::log(SQR(mu_)));
     }
     setup_grids();
 }
@@ -38,7 +38,7 @@ void InterpolateQCDCoupling::setup_grids()
         const double currAS = (i != m_mu2_vec.size()) ? m_alsphasVec_vec[i] : -1;
         // If the Q2 value is repeated, sync the current subgrid and start a new one.
         // Note special treatment for the first and last points in q2s.
-        if (abs(currQ2 - prevQ2) < std::numeric_limits<double>::epsilon())
+        if (fabs(currQ2 - prevQ2) < std::numeric_limits<double>::epsilon())
         {
             // Sync current subgrid as as AlphaSArray
             if (i != 0)

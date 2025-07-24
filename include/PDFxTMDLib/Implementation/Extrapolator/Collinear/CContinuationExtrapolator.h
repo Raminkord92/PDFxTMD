@@ -117,7 +117,7 @@ class CContinuationExtrapolator
                 // set anomalous dimension to 1 to prevent rounding
                 // errors. Impose minimum anomalous dimension of -2.5.
 
-                if (abs(fq2Min) >= 1e-5)
+                if (fabs(fq2Min) >= 1e-5)
                 {
                     // anom = dlog(f)/dlog(q2) = q2/f * df/dq2 evaluated
                     // at q2 = q2Min, where derivative df/dq2 = (
@@ -236,7 +236,7 @@ class CContinuationExtrapolator
             // set anomalous dimension to 1 to prevent rounding
             // errors. Impose minimum anomalous dimension of -2.5.
 
-            if (abs(fq2Min) >= 1e-5)
+            if (fabs(fq2Min) >= 1e-5)
             {
                 // anom = dlog(f)/dlog(q2) = q2/f * df/dq2 evaluated
                 // at q2 = q2Min, where derivative df/dq2 = (
