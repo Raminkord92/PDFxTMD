@@ -1,94 +1,39 @@
 version: '{build}'
 
+branches:
+  only:
+    - master
 image:
-  # - Visual Studio 2022
-  # - Ubuntu2204
-  - macos-sonoma
+  - Visual Studio 2019
+  - Ubuntu2204
+  - macOS
 
-environment:
-  global:
-    # Skip unsupported Python versions
-    CIBW_SKIP: cp27-* cp33-* cp34-* cp35-* cp36-* cp37-* cp38-* cp39-* cp310-*
-    # Set output directory for wheels
-    CIBW_OUTPUT_DIR: wheelhouse
-    # Specify Python versions to build for
-    CIBW_BUILD:  cp311-* cp312-* cp313-*
-    # Platform-specific before_build commands (CMake only, no requirements.txt)
-    # CIBW_BEFORE_BUILD_WINDOWS: |
-    #   cmake -B build -G "Visual Studio 17 2022" -A x64 && cmake -B build-arm64 -G "Visual Studio 17 2022" -A ARM64 && cmake --build build --config Release && cmake --build build-arm64 --config Release
-    # CIBW_BEFORE_BUILD_LINUX: |
-    #   cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
-    CIBW_BEFORE_BUILD_MACOS: |
-      cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
-    CIBW_ARCHS_LINUX: auto 
-    CIBW_ARCHS_MACOS: auto universal2 arm64
-    CIBW_ARCHS_WINDOWS: auto
-  matrix:
-    - PYTHON_VERSION: 3.12
-
-build: off
-
-install:
-  - ps: |
-      if ($env:APPVEYOR_BUILD_WORKER_IMAGE -eq "Visual Studio 2022") {
-        # Set up Python for Windows
-        $env:PATH = "C:\Python$($env:PYTHON_VERSION -replace '\.', '')\Scripts;C:\Python$($env:PYTHON_VERSION -replace '\.', '');$env:PATH"
-        python -m pip install --upgrade pip
-        python -m pip install cibuildwheel==2.21.3
-      }
-      elseif ($env:APPVEYOR_BUILD_WORKER_IMAGE -eq "Ubuntu2204") {
-        # Set up Python for Ubuntu
-        python3 -m pip install --upgrade pip
-        python -m pip install cibuildwheel==2.21.3
-      }
-      elseif ($env:APPVEYOR_BUILD_WORKER_IMAGE -eq "macos-sonoma") {
-        # Set up Python for macOS
-        python3 -m pip install --upgrade pip
-        python3 -m pip install cibuildwheel==2.21.3
-      }
+configuration:
+  - Release
 
 for:
-  # - matrix:
-  #     only:
-  #       - image: Visual Studio 2022
-  #   init:
-  #     - ps: |
-  #         # Ensure Python is available
-  #         $py_ver = $env:PYTHON_VERSION -replace '\.', ''
-  #         $env:PATH = "C:\Python$py_ver;C:\Python$py_ver\Scripts;$env:PATH"
-  #         python --version
-  #   build_script:
-  #     - python -m cibuildwheel --platform windows
-  #   artifacts:
-  #     - path: wheelhouse\*.whl
-  #       name: Windows_Wheels
-
-  # - matrix:
-  #     only:
-  #       - image: Ubuntu2204
-  #   init:
-  #     - sh: |
-  #         # Enable QEMU for aarch64 builds
-  #         docker run --rm --privileged docker.io/tonistiigi/binfmt:latest --install all
-  #   build_script:
-  #     - sh: python3 -m cibuildwheel --platform linux
-  #   artifacts:
-  #     - path: wheelhouse/*.whl
-  #       name: Linux_Wheels
+  - matrix:
+      only:
+        - image: Visual Studio 2019
+    before_build:
+      - cmake -G "Visual Studio 16 2019" -A x64 -B build
+      - cmake -G "Visual Studio 16 2019" -A ARM64 -B build-arm64
+    build_script:
+      - cmake --build build --config %CONFIGURATION%
+      - cmake --build build-arm64 --config %CONFIGURATION%
 
   - matrix:
       only:
-        - image: macos-sonoma
-    init:
-      - sh: |
-          # Install Rosetta for cross-compilation
-          softwareupdate --install-rosetta --agree-to-license
-           # Fix CMake installation
-          brew install cmake || true
-          brew link --overwrite cmake
-          python3 --version
+        - image: Ubuntu2204
+    before_build:
+      - sh: cmake -DCMAKE_BUILD_TYPE=$CONFIGURATION -B build
     build_script:
-      - sh: python3 -m cibuildwheel --platform macos
-    artifacts:
-      - path: wheelhouse/*.whl
-        name: macOS_Wheels
+      - sh: cmake --build build
+
+  - matrix:
+      only:
+        - image: macOS
+    before_build:
+      - sh: cmake -DCMAKE_BUILD_TYPE=$CONFIGURATION -B build
+    build_script:
+      - sh: cmake --build build
