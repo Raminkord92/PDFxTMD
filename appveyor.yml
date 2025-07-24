@@ -1,8 +1,5 @@
 version: '{build}'
 
-branches:
-  only:
-    - master
 image:
   - Visual Studio 2019
   - Ubuntu2204
