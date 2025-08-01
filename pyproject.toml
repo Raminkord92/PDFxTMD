@@ -1,6 +1,6 @@
 [project]
 name = "pdfxtmd"
-version = "1.0.0"
+version = "1.0.1"
 description = "PDFxTMD is a library for parton distribution functions (PDFs) that integrates both collinear PDFs (cPDFs) and transverse momentum-dependent PDFs (TMDs)."
 authors = [
     {name = "Ramin Kord Valeshabadi", email = "raminkord92@gmail.com"}

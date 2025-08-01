@@ -1,16 +1,5 @@
 version: '{build}'
 
-branches:
-  only:
-    - master
-only_commits:
-  files:
-    - include/PDFxTMDLib/
-    - src/
-    - wrappers/
-    - cmake/
-    - examples/
-    - CMakeLists.txt
 image:
   - Visual Studio 2019
   - Ubuntu2204
