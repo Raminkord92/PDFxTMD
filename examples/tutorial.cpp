@@ -3,9 +3,9 @@
 #include <PDFxTMDLib/Common/PartonUtils.h>
 #include <PDFxTMDLib/Factory.h>
 #include <PDFxTMDLib/GenericPDF.h>
-#include <PDFxTMDLib/Implementation/Extrapolator/Collinear/CErrExtrapolator.h>
-#include <PDFxTMDLib/Implementation/Interpolator/Collinear/CLHAPDFBilinearInterpolator.h>
-#include <PDFxTMDLib/Implementation/Reader/Collinear/CDefaultLHAPDFFileReader.h>
+#include <PDFxTMDLib/Implementation/Extrapolator/Collinear/SPDF/CErrExtrapolator.h>
+#include <PDFxTMDLib/Implementation/Interpolator/Collinear/SPDF/CLHAPDFBilinearInterpolator.h>
+#include <PDFxTMDLib/Implementation/Reader/Collinear/SPDF/CDefaultLHAPDFFileReader.h>
 #include <PDFxTMDLib/PDFSet.h>
 #include <array>
 #include <iostream>

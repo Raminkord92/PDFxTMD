@@ -158,7 +158,6 @@ std::pair<std::optional<std::string>, ErrorType> StandardInfoFilePath(const std:
         {
             continue;
         }
-
         return {pdfPath_.string(), ErrorType::None};
     }
     return {"", ErrorType::FILE_NOT_FOUND};
