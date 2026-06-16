@@ -1,720 +1,1062 @@
-#include "PDFxTMDLib/Common/ConfigWrapper.h"
-#include "PDFxTMDLib/Common/PartonUtils.h"
-#include "PDFxTMDLib/Common/YamlMetaInfo/YamlErrorInfo.h"
-#include "PDFxTMDLib/Common/YamlMetaInfo/YamlStandardPDFInfo.h"
 #include "PDFxTMDLib/Factory.h"
-#include "PDFxTMDLib/Interface/ICPDF.h"
+#include "PDFxTMDLib/GenericPDF.h"
 #include "PDFxTMDLib/Interface/IQCDCoupling.h"
-#include "PDFxTMDLib/Interface/ITMD.h"
-#include "PDFxTMDLib/PDFSet.h"
+#include "PDFxTMDLib/Interface/SPDF/ICPDF.h"
+#include "PDFxTMDLib/Interface/SPDF/ITMD.h"
+#include "PDFxTMDLib/Interface/DPDF/ICDPDF.h"
+
 #include <array>
-#include <pybind11/pybind11.h>
-#include <pybind11/stl.h>
+#include <cstddef>
 #include <stdexcept>
 #include <string>
+#include <vector>
+
+#include <pybind11/pybind11.h>
+#include <pybind11/numpy.h>
+#include <pybind11/stl.h>
 
 namespace py = pybind11;
 
+namespace
+{
+    inline void validate_x(double x, const std::string &name)
+    {
+        if (x <= 0.0 || x >= 1.0)
+        {
+            throw std::invalid_argument(name + " must be in (0, 1)");
+        }
+    }
+
+    inline void validate_mu2(double mu2, const std::string &name)
+    {
+        if (mu2 <= 0.0)
+        {
+            throw std::invalid_argument(name + " must be positive");
+        }
+    }
+
+    inline void validate_kt2(double kt2)
+    {
+        if (kt2 < 0.0)
+        {
+            throw std::invalid_argument("kt2 must be non-negative");
+        }
+    }
+
+    inline void validate_dpdf_kinematics(
+        double x1,
+        double mu1_2,
+        double x2,
+        double mu2_2)
+    {
+        validate_x(x1, "x1");
+        validate_x(x2, "x2");
+        validate_mu2(mu1_2, "mu1_2");
+        validate_mu2(mu2_2, "mu2_2");
+    }
+
+    inline bool outside_dpdf_support(double x1, double x2)
+    {
+        return x1 + x2 >= 1.0;
+    }
+
+    inline void validate_same_size(
+        const std::vector<double> &x1,
+        const std::vector<double> &mu1_2,
+        const std::vector<double> &x2,
+        const std::vector<double> &mu2_2)
+    {
+        const std::size_t n = x1.size();
+
+        if (mu1_2.size() != n || x2.size() != n || mu2_2.size() != n)
+        {
+            throw std::invalid_argument(
+                "x1, mu1_2, x2, and mu2_2 must have the same length");
+        }
+    }
+
+
+    using DoubleArray = py::array_t<double, py::array::c_style | py::array::forcecast>;
+
+    inline void validate_same_shape_arrays(
+        const py::buffer_info &a,
+        const py::buffer_info &b,
+        const std::string &a_name,
+        const std::string &b_name)
+    {
+        if (a.ndim != b.ndim)
+        {
+            throw std::invalid_argument(
+                a_name + " and " + b_name + " must have the same number of dimensions");
+        }
+
+        for (py::ssize_t i = 0; i < a.ndim; ++i)
+        {
+            if (a.shape[static_cast<std::size_t>(i)] != b.shape[static_cast<std::size_t>(i)])
+            {
+                throw std::invalid_argument(
+                    a_name + " and " + b_name + " must have identical shapes");
+            }
+        }
+    }
+
+    inline void validate_same_shape_arrays(
+        const py::buffer_info &x1,
+        const py::buffer_info &mu1_2,
+        const py::buffer_info &x2,
+        const py::buffer_info &mu2_2)
+    {
+        validate_same_shape_arrays(x1, mu1_2, "x1", "mu1_2");
+        validate_same_shape_arrays(x1, x2, "x1", "x2");
+        validate_same_shape_arrays(x1, mu2_2, "x1", "mu2_2");
+    }
+
+    template <typename CPDF>
+    py::array_t<double> pdf_batch_numpy_impl(
+        CPDF &self,
+        PDFxTMD::PartonFlavor flavor,
+        DoubleArray x,
+        DoubleArray mu2)
+    {
+        const py::buffer_info x_info = x.request();
+        const py::buffer_info mu2_info = mu2.request();
+
+        validate_same_shape_arrays(x_info, mu2_info, "x", "mu2");
+
+        const auto n = x_info.size;
+        const double *x_ptr = static_cast<const double *>(x_info.ptr);
+        const double *mu2_ptr = static_cast<const double *>(mu2_info.ptr);
+
+        for (py::ssize_t i = 0; i < n; ++i)
+        {
+            validate_x(x_ptr[i], "x");
+            validate_mu2(mu2_ptr[i], "mu2");
+        }
+
+        py::array_t<double> values(x_info.shape);
+        double *out_ptr = static_cast<double *>(values.request().ptr);
+
+        {
+            py::gil_scoped_release release;
+            for (py::ssize_t i = 0; i < n; ++i)
+            {
+                out_ptr[i] = self.pdf(flavor, x_ptr[i], mu2_ptr[i]);
+            }
+        }
+
+        return values;
+    }
+
+    template <typename DPDF>
+    py::array_t<double> dpdf_batch_numpy_impl(
+        DPDF &self,
+        PDFxTMD::PartonFlavor flavor1,
+        PDFxTMD::PartonFlavor flavor2,
+        DoubleArray x1,
+        DoubleArray mu1_2,
+        DoubleArray x2,
+        DoubleArray mu2_2,
+        bool enforce_support)
+    {
+        const py::buffer_info x1_info = x1.request();
+        const py::buffer_info mu1_info = mu1_2.request();
+        const py::buffer_info x2_info = x2.request();
+        const py::buffer_info mu2_info = mu2_2.request();
+
+        validate_same_shape_arrays(x1_info, mu1_info, x2_info, mu2_info);
+
+        const auto n = x1_info.size;
+        const double *x1_ptr = static_cast<const double *>(x1_info.ptr);
+        const double *mu1_ptr = static_cast<const double *>(mu1_info.ptr);
+        const double *x2_ptr = static_cast<const double *>(x2_info.ptr);
+        const double *mu2_ptr = static_cast<const double *>(mu2_info.ptr);
+
+        for (py::ssize_t i = 0; i < n; ++i)
+        {
+            validate_dpdf_kinematics(x1_ptr[i], mu1_ptr[i], x2_ptr[i], mu2_ptr[i]);
+        }
+
+        py::array_t<double> values(x1_info.shape);
+        double *out_ptr = static_cast<double *>(values.request().ptr);
+
+        {
+            py::gil_scoped_release release;
+            for (py::ssize_t i = 0; i < n; ++i)
+            {
+                if (enforce_support && outside_dpdf_support(x1_ptr[i], x2_ptr[i]))
+                {
+                    out_ptr[i] = 0.0;
+                }
+                else
+                {
+                    out_ptr[i] = self.dpdf(
+                        flavor1,
+                        flavor2,
+                        x1_ptr[i],
+                        mu1_ptr[i],
+                        x2_ptr[i],
+                        mu2_ptr[i]);
+                }
+            }
+        }
+
+        return values;
+    }
+}
+
 PYBIND11_MODULE(pdfxtmd, m)
 {
-    m.doc() = "Python bindings for the PDFxTMD library, providing access to Collinear Parton "
-              "Distribution Functions (CPDFs), "
-              "Transverse Momentum Dependent (TMD) PDFs, QCD coupling calculations, and PDF sets.";
+    m.doc() =
+        "Python bindings for PDFxTMD with CPDF, TMD, and DPDF support.";
 
-    // Existing bindings (unchanged)
-    py::enum_<PDFxTMD::PartonFlavor>(m, "PartonFlavor", "Enum representing parton flavors")
-        .value("u", PDFxTMD::PartonFlavor::u, "Up quark")
-        .value("d", PDFxTMD::PartonFlavor::d, "Down quark")
-        .value("s", PDFxTMD::PartonFlavor::s, "Strange quark")
-        .value("c", PDFxTMD::PartonFlavor::c, "Charm quark")
-        .value("b", PDFxTMD::PartonFlavor::b, "Bottom quark")
-        .value("t", PDFxTMD::PartonFlavor::t, "Top quark")
-        .value("g", PDFxTMD::PartonFlavor::g, "Gluon")
-        .value("ubar", PDFxTMD::PartonFlavor::ubar, "Up antiquark")
-        .value("dbar", PDFxTMD::PartonFlavor::dbar, "Down antiquark")
-        .value("sbar", PDFxTMD::PartonFlavor::sbar, "Strange antiquark")
-        .value("cbar", PDFxTMD::PartonFlavor::cbar, "Charm antiquark")
-        .value("bbar", PDFxTMD::PartonFlavor::bbar, "Bottom antiquark")
-        .value("tbar", PDFxTMD::PartonFlavor::tbar, "Top antiquark")
+    m.attr("__has_dpdf__") = true;
+
+    py::enum_<PDFxTMD::PartonFlavor>(
+        m,
+        "PartonFlavor",
+        "Enum representing parton flavors")
+        .value("u", PDFxTMD::PartonFlavor::u)
+        .value("d", PDFxTMD::PartonFlavor::d)
+        .value("s", PDFxTMD::PartonFlavor::s)
+        .value("c", PDFxTMD::PartonFlavor::c)
+        .value("b", PDFxTMD::PartonFlavor::b)
+        .value("t", PDFxTMD::PartonFlavor::t)
+        .value("g", PDFxTMD::PartonFlavor::g)
+        .value("ubar", PDFxTMD::PartonFlavor::ubar)
+        .value("dbar", PDFxTMD::PartonFlavor::dbar)
+        .value("sbar", PDFxTMD::PartonFlavor::sbar)
+        .value("cbar", PDFxTMD::PartonFlavor::cbar)
+        .value("bbar", PDFxTMD::PartonFlavor::bbar)
+        .value("tbar", PDFxTMD::PartonFlavor::tbar)
         .export_values();
 
-    py::class_<PDFxTMD::IQCDCoupling>(m, "IQCDCoupling", "Interface for QCD coupling calculations")
+    py::class_<PDFxTMD::IQCDCoupling>(
+        m,
+        "IQCDCoupling",
+        "Interface for QCD coupling calculations")
         .def(
             "AlphaQCDMu2",
             [](const PDFxTMD::IQCDCoupling &self, double mu2) {
                 try
                 {
-                    if (mu2 <= 0)
-                        throw std::invalid_argument(
-                            "Factorization scale squared (mu2) must be positive");
+                    validate_mu2(mu2, "mu2");
                     return self.AlphaQCDMu2(mu2);
                 }
                 catch (const std::exception &e)
                 {
-                    throw py::value_error("Error calculating alpha_s at mu2=" +
-                                          std::to_string(mu2) + ": " + e.what());
+                    throw py::value_error(
+                        "Error calculating alpha_s at mu2=" +
+                        std::to_string(mu2) + ": " + e.what());
                 }
             },
-            py::arg("mu2"), "Calculate the strong coupling constant alpha_s at the given scale.");
+            py::arg("mu2"));
 
-    py::class_<PDFxTMD::CouplingFactory>(m, "CouplingFactory",
-                                         "Factory for creating QCD coupling objects")
+    py::class_<PDFxTMD::CouplingFactory>(
+        m,
+        "CouplingFactory",
+        "Factory for QCD coupling objects")
         .def(py::init<>())
         .def(
             "mkCoupling",
-            [](PDFxTMD::CouplingFactory &self, const std::string &pdfSetName) {
+            [](PDFxTMD::CouplingFactory &self,
+               const std::string &pdfSetName) {
                 try
                 {
                     if (pdfSetName.empty())
-                        throw std::invalid_argument("PDF set name cannot be empty");
+                    {
+                        throw std::invalid_argument(
+                            "PDF set name cannot be empty");
+                    }
+
                     return self.mkCoupling(pdfSetName);
                 }
                 catch (const std::exception &e)
                 {
-                    throw py::value_error("Error creating QCD coupling for PDF set '" + pdfSetName +
-                                          "': " + e.what());
+                    throw py::value_error(
+                        "Error creating QCD coupling for '" +
+                        pdfSetName + "': " + e.what());
                 }
             },
-            py::arg("pdfSetName"), py::return_value_policy::take_ownership);
+            py::arg("pdfSetName"),
+            py::return_value_policy::take_ownership);
 
-    py::class_<PDFxTMD::GenericTMDFactory>(m, "GenericTMDFactory",
-                                           "Factory for creating TMD objects")
-        .def(py::init<>())
+    py::class_<PDFxTMD::ICPDF>(
+        m,
+        "ICPDF",
+        "Interface for collinear single PDFs")
         .def(
-            "mkTMD",
-            [](PDFxTMD::GenericTMDFactory &self, const std::string &pdfSetName, int setMember) {
-                try
-                {
-                    if (pdfSetName.empty())
-                        throw std::invalid_argument("PDF set name cannot be empty");
-                    if (setMember < 0)
-                        throw std::invalid_argument("Set member index must be non-negative");
-                    return self.mkTMD(pdfSetName, setMember);
-                }
-                catch (const std::exception &e)
-                {
-                    throw py::value_error("Error creating TMD for '" + pdfSetName +
-                                          "': " + e.what());
-                }
-            },
-            py::arg("pdfSetName"), py::arg("setMember"), py::return_value_policy::take_ownership);
-    // Bind ITMD
-    py::class_<PDFxTMD::ITMD>(
-        m, "ITMD",
-        "Interface for Transverse Momentum Dependent (TMD) Parton Distribution Functions")
-        .def(
-            "tmd",
-            [](const PDFxTMD::ITMD &self, PDFxTMD::PartonFlavor flavor, double x, double kt2,
+            "pdf",
+            [](const PDFxTMD::ICPDF &self,
+               PDFxTMD::PartonFlavor flavor,
+               double x,
                double mu2) {
                 try
                 {
-                    if (x <= 0 || x >= 1)
-                    {
-                        throw std::invalid_argument("Momentum fraction x must be in (0, 1)");
-                    }
-                    if (kt2 < 0)
-                    {
-                        throw std::invalid_argument(
-                            "Transverse momentum squared kt2 must be non-negative");
-                    }
-                    if (mu2 <= 0)
-                    {
-                        throw std::invalid_argument(
-                            "Factorization scale squared mu2 must be positive");
-                    }
-                    return self.tmd(flavor, x, kt2, mu2);
-                }
-                catch (const std::exception &e)
-                {
-                    throw py::value_error("Error evaluating TMD for flavor " +
-                                          std::to_string(static_cast<int>(flavor)) + " at x=" +
-                                          std::to_string(x) + ", kt2=" + std::to_string(kt2) +
-                                          ", mu2=" + std::to_string(mu2) + ": " + e.what());
-                }
-            },
-            py::arg("flavor"), py::arg("x"), py::arg("kt2"), py::arg("mu2"),
-            "Calculate the TMD PDF for a specific parton flavor.\n"
-            "\nArgs:\n"
-            "    flavor (PartonFlavor): The parton flavor (e.g., u, d, g).\n"
-            "    x (float): Momentum fraction (0 < x < 1).\n"
-            "    kt2 (float): Transverse momentum squared (GeV^2, non-negative).\n"
-            "    mu2 (float): Factorization scale squared (GeV^2, positive).\n"
-            "\nReturns:\n"
-            "    float: The TMD PDF value.")
-        .def(
-            "tmd",
-            [](const PDFxTMD::ITMD &self, double x, double kt2, double mu2, py::list &output) {
-                try
-                {
-                    // Validate input parameters
-                    if (x <= 0 || x >= 1)
-                    {
-                        throw std::invalid_argument("Momentum fraction x must be in (0, 1)");
-                    }
-                    if (kt2 < 0)
-                    {
-                        throw std::invalid_argument(
-                            "Transverse momentum squared kt2 must be non-negative");
-                    }
-                    if (mu2 <= 0)
-                    {
-                        throw std::invalid_argument(
-                            "Factorization scale squared mu2 must be positive");
-                    }
-                    std::array<double, 13> temp;
-                    self.tmd(x, kt2, mu2, temp);
-                    // Copy results to Python list
-                    for (size_t i = 0; i < temp.size(); ++i)
-                    {
-                        output.append(temp[i]);
-                    }
-                }
-                catch (const std::exception &e)
-                {
-                    throw py::value_error("Error evaluating TMD for all flavors at x=" +
-                                          std::to_string(x) + ", kt2=" + std::to_string(kt2) +
-                                          ", mu2=" + std::to_string(mu2) + ": " + e.what());
-                }
-            },
-            py::arg("x"), py::arg("kt2"), py::arg("mu2"), py::arg("output"),
-            "Calculate TMD PDFs for all flavors and store in the provided list.\n"
-            "\nArgs:\n"
-            "    x (float): Momentum fraction (0 < x < 1).\n"
-            "    kt2 (float): Transverse momentum squared (GeV^2, non-negative).\n"
-            "    mu2 (float): Factorization scale squared (GeV^2, positive).\n"
-            "    output (list): A list of 13 floats to store TMD values for "
-            "{tbar, bbar, cbar, sbar, ubar, dbar, g, d, u, s, c, b, t}.\n"
-            "\nReturns:\n"
-            "    None: Modifies the output list in-place.");
-    // Bind ICPDF
-    py::class_<PDFxTMD::ICPDF>(m, "ICPDF",
-                               "Interface for Collinear Parton Distribution Functions (CPDFs)")
-        .def(
-            "pdf",
-            [](const PDFxTMD::ICPDF &self, PDFxTMD::PartonFlavor flavor, double x, double mu2) {
-                try
-                {
-                    if (x <= 0 || x >= 1)
-                    {
-                        throw std::invalid_argument("Momentum fraction x must be in (0, 1)");
-                    }
-                    if (mu2 <= 0)
-                    {
-                        throw std::invalid_argument(
-                            "Factorization scale squared mu2 must be positive");
-                    }
+                    validate_x(x, "x");
+                    validate_mu2(mu2, "mu2");
+
                     return self.pdf(flavor, x, mu2);
                 }
                 catch (const std::exception &e)
                 {
-                    throw py::value_error("Error evaluating CPDF for flavor " +
-                                          std::to_string(static_cast<int>(flavor)) +
-                                          " at x=" + std::to_string(x) +
-                                          ", mu2=" + std::to_string(mu2) + ": " + e.what());
+                    throw py::value_error(
+                        "Error evaluating CPDF at x=" +
+                        std::to_string(x) +
+                        ", mu2=" +
+                        std::to_string(mu2) +
+                        ": " +
+                        e.what());
                 }
             },
-            py::arg("flavor"), py::arg("x"), py::arg("mu2"),
-            "Calculate the CPDF for a specific parton flavor.\n"
-            "\nArgs:\n"
-            "    flavor (PartonFlavor): The parton flavor (e.g., u, d, g).\n"
-            "    x (float): Momentum fraction (0 < x < 1).\n"
-            "    mu2 (float): Factorization scale squared (GeV^2, positive).\n"
-            "\nReturns:\n"
-            "    float: The CPDF value.")
+            py::arg("flavor"),
+            py::arg("x"),
+            py::arg("mu2"),
+            "Evaluate one collinear PDF flavor.")
         .def(
-            "pdf",
-            [](const PDFxTMD::ICPDF &self, double x, double mu2, py::list &output) {
+            "pdf_batch",
+            [](const PDFxTMD::ICPDF &self,
+               PDFxTMD::PartonFlavor flavor,
+               DoubleArray x,
+               DoubleArray mu2) {
                 try
                 {
-                    // Validate input parameters
-                    if (x <= 0 || x >= 1)
-                    {
-                        throw std::invalid_argument("Momentum fraction x must be in (0, 1)");
-                    }
-                    if (mu2 <= 0)
-                    {
-                        throw std::invalid_argument(
-                            "Factorization scale squared mu2 must be positive");
-                    }
+                    return pdf_batch_numpy_impl(self, flavor, x, mu2);
+                }
+                catch (const std::exception &e)
+                {
+                    throw py::value_error(
+                        "Error evaluating CPDF batch: " +
+                        std::string(e.what()));
+                }
+            },
+            py::arg("flavor"),
+            py::arg("x"),
+            py::arg("mu2"),
+            "Evaluate one collinear PDF flavor for a NumPy array of points.")
+        .def(
+            "pdf",
+            [](const PDFxTMD::ICPDF &self,
+               double x,
+               double mu2,
+               py::list &output) {
+                try
+                {
+                    validate_x(x, "x");
+                    validate_mu2(mu2, "mu2");
+
                     std::array<double, 13> temp;
                     self.pdf(x, mu2, temp);
-                    for (size_t i = 0; i < temp.size(); ++i)
+
+                    for (double value : temp)
                     {
-                        output.append(temp[i]);
+                        output.append(value);
                     }
                 }
                 catch (const std::exception &e)
                 {
                     throw py::value_error(
-                        "Error evaluating CPDF for all flavors at x=" + std::to_string(x) +
-                        ", mu2=" + std::to_string(mu2) + ": " + e.what());
+                        "Error evaluating all CPDF flavors at x=" +
+                        std::to_string(x) +
+                        ", mu2=" +
+                        std::to_string(mu2) +
+                        ": " +
+                        e.what());
                 }
             },
-            py::arg("x"), py::arg("mu2"), py::arg("output"),
-            "Calculate cPDFs for all flavors and store in the provided list.\n"
-            "\nArgs:\n"
-            "    x (float): Momentum fraction (0 < x < 1).\n"
-            "    mu2 (float): Factorization scale squared (GeV^2, positive).\n"
-            "    output (list): A list of 13 floats to store CPDF values for "
-            "{tbar, bbar, cbar, sbar, ubar, dbar, g, d, u, s, c, b, t}.\n"
-            "\nReturns:\n"
-            "    None: Modifies the output list in-place.");
+            py::arg("x"),
+            py::arg("mu2"),
+            py::arg("output"),
+            "Evaluate all collinear PDF flavors into output list.")
+        .def(
+            "pdf_all",
+            [](const PDFxTMD::ICPDF &self,
+               double x,
+               double mu2) {
+                try
+                {
+                    validate_x(x, "x");
+                    validate_mu2(mu2, "mu2");
 
-    py::class_<PDFxTMD::GenericCPDFFactory>(m, "GenericCPDFFactory",
-                                            "Factory for creating CPDF objects")
+                    std::array<double, 13> temp;
+                    self.pdf(x, mu2, temp);
+
+                    return std::vector<double>(temp.begin(), temp.end());
+                }
+                catch (const std::exception &e)
+                {
+                    throw py::value_error(
+                        "Error evaluating all CPDF flavors at x=" +
+                        std::to_string(x) +
+                        ", mu2=" +
+                        std::to_string(mu2) +
+                        ": " +
+                        e.what());
+                }
+            },
+            py::arg("x"),
+            py::arg("mu2"),
+            "Evaluate all collinear PDF flavors and return a list.");
+
+    py::class_<PDFxTMD::ITMD>(
+        m,
+        "ITMD",
+        "Interface for transverse-momentum-dependent PDFs")
+        .def(
+            "tmd",
+            [](const PDFxTMD::ITMD &self,
+               PDFxTMD::PartonFlavor flavor,
+               double x,
+               double kt2,
+               double mu2) {
+                try
+                {
+                    validate_x(x, "x");
+                    validate_kt2(kt2);
+                    validate_mu2(mu2, "mu2");
+
+                    return self.tmd(flavor, x, kt2, mu2);
+                }
+                catch (const std::exception &e)
+                {
+                    throw py::value_error(
+                        "Error evaluating TMD at x=" +
+                        std::to_string(x) +
+                        ", kt2=" +
+                        std::to_string(kt2) +
+                        ", mu2=" +
+                        std::to_string(mu2) +
+                        ": " +
+                        e.what());
+                }
+            },
+            py::arg("flavor"),
+            py::arg("x"),
+            py::arg("kt2"),
+            py::arg("mu2"),
+            "Evaluate one TMD flavor.")
+        .def(
+            "tmd",
+            [](const PDFxTMD::ITMD &self,
+               double x,
+               double kt2,
+               double mu2,
+               py::list &output) {
+                try
+                {
+                    validate_x(x, "x");
+                    validate_kt2(kt2);
+                    validate_mu2(mu2, "mu2");
+
+                    std::array<double, 13> temp;
+                    self.tmd(x, kt2, mu2, temp);
+
+                    for (double value : temp)
+                    {
+                        output.append(value);
+                    }
+                }
+                catch (const std::exception &e)
+                {
+                    throw py::value_error(
+                        "Error evaluating all TMD flavors at x=" +
+                        std::to_string(x) +
+                        ", kt2=" +
+                        std::to_string(kt2) +
+                        ", mu2=" +
+                        std::to_string(mu2) +
+                        ": " +
+                        e.what());
+                }
+            },
+            py::arg("x"),
+            py::arg("kt2"),
+            py::arg("mu2"),
+            py::arg("output"),
+            "Evaluate all TMD flavors into output list.")
+        .def(
+            "tmd_all",
+            [](const PDFxTMD::ITMD &self,
+               double x,
+               double kt2,
+               double mu2) {
+                try
+                {
+                    validate_x(x, "x");
+                    validate_kt2(kt2);
+                    validate_mu2(mu2, "mu2");
+
+                    std::array<double, 13> temp;
+                    self.tmd(x, kt2, mu2, temp);
+
+                    return std::vector<double>(temp.begin(), temp.end());
+                }
+                catch (const std::exception &e)
+                {
+                    throw py::value_error(
+                        "Error evaluating all TMD flavors at x=" +
+                        std::to_string(x) +
+                        ", kt2=" +
+                        std::to_string(kt2) +
+                        ", mu2=" +
+                        std::to_string(mu2) +
+                        ": " +
+                        e.what());
+                }
+            },
+            py::arg("x"),
+            py::arg("kt2"),
+            py::arg("mu2"),
+            "Evaluate all TMD flavors and return a list.");
+
+    py::class_<PDFxTMD::ICDPDF>(
+        m,
+        "ICDPDF",
+        "Interface for collinear double PDFs")
+        .def(
+            "dpdf",
+            [](const PDFxTMD::ICDPDF &self,
+               PDFxTMD::PartonFlavor flavor1,
+               PDFxTMD::PartonFlavor flavor2,
+               double x1,
+               double mu1_2,
+               double x2,
+               double mu2_2,
+               bool enforce_support) {
+                try
+                {
+                    validate_dpdf_kinematics(x1, mu1_2, x2, mu2_2);
+
+                    if (enforce_support && outside_dpdf_support(x1, x2))
+                    {
+                        return 0.0;
+                    }
+
+                    return self.dpdf(
+                        flavor1,
+                        flavor2,
+                        x1,
+                        mu1_2,
+                        x2,
+                        mu2_2);
+                }
+                catch (const std::exception &e)
+                {
+                    throw py::value_error(
+                        "Error evaluating DPDF at x1=" +
+                        std::to_string(x1) +
+                        ", mu1_2=" +
+                        std::to_string(mu1_2) +
+                        ", x2=" +
+                        std::to_string(x2) +
+                        ", mu2_2=" +
+                        std::to_string(mu2_2) +
+                        ": " +
+                        e.what());
+                }
+            },
+            py::arg("flavor1"),
+            py::arg("flavor2"),
+            py::arg("x1"),
+            py::arg("mu1_2"),
+            py::arg("x2"),
+            py::arg("mu2_2"),
+            py::arg("enforce_support") = true,
+            "Evaluate a collinear double PDF.")
+        .def(
+            "dpdf_batch",
+            [](const PDFxTMD::ICDPDF &self,
+               PDFxTMD::PartonFlavor flavor1,
+               PDFxTMD::PartonFlavor flavor2,
+               DoubleArray x1,
+               DoubleArray mu1_2,
+               DoubleArray x2,
+               DoubleArray mu2_2,
+               bool enforce_support) {
+                try
+                {
+                    return dpdf_batch_numpy_impl(
+                        self,
+                        flavor1,
+                        flavor2,
+                        x1,
+                        mu1_2,
+                        x2,
+                        mu2_2,
+                        enforce_support);
+                }
+                catch (const std::exception &e)
+                {
+                    throw py::value_error(
+                        "Error evaluating DPDF NumPy batch: " +
+                        std::string(e.what()));
+                }
+            },
+            py::arg("flavor1"),
+            py::arg("flavor2"),
+            py::arg("x1"),
+            py::arg("mu1_2"),
+            py::arg("x2"),
+            py::arg("mu2_2"),
+            py::arg("enforce_support") = true,
+            "Evaluate many DPDF points for one flavor pair from NumPy arrays.")
+        .def(
+            "dpdf_batch",
+            [](const PDFxTMD::ICDPDF &self,
+               PDFxTMD::PartonFlavor flavor1,
+               PDFxTMD::PartonFlavor flavor2,
+               const std::vector<double> &x1,
+               const std::vector<double> &mu1_2,
+               const std::vector<double> &x2,
+               const std::vector<double> &mu2_2,
+               bool enforce_support) {
+                try
+                {
+                    validate_same_size(x1, mu1_2, x2, mu2_2);
+
+                    std::vector<double> values;
+                    values.reserve(x1.size());
+
+                    for (std::size_t i = 0; i < x1.size(); ++i)
+                    {
+                        validate_dpdf_kinematics(
+                            x1[i],
+                            mu1_2[i],
+                            x2[i],
+                            mu2_2[i]);
+
+                        if (enforce_support && outside_dpdf_support(x1[i], x2[i]))
+                        {
+                            values.push_back(0.0);
+                        }
+                        else
+                        {
+                            values.push_back(
+                                self.dpdf(
+                                    flavor1,
+                                    flavor2,
+                                    x1[i],
+                                    mu1_2[i],
+                                    x2[i],
+                                    mu2_2[i]));
+                        }
+                    }
+
+                    return values;
+                }
+                catch (const std::exception &e)
+                {
+                    throw py::value_error(
+                        "Error evaluating DPDF batch: " +
+                        std::string(e.what()));
+                }
+            },
+            py::arg("flavor1"),
+            py::arg("flavor2"),
+            py::arg("x1"),
+            py::arg("mu1_2"),
+            py::arg("x2"),
+            py::arg("mu2_2"),
+            py::arg("enforce_support") = true,
+            "Evaluate many DPDF points for one flavor pair.");
+
+    py::class_<PDFxTMD::GenericCPDFFactory>(
+        m,
+        "GenericCPDFFactory",
+        "Factory for creating CPDF objects")
         .def(py::init<>())
         .def(
             "mkCPDF",
-            [](PDFxTMD::GenericCPDFFactory &self, const std::string &pdfSetName, int setMember) {
+            [](PDFxTMD::GenericCPDFFactory &self,
+               const std::string &pdfSetName,
+               int setMember) {
                 try
                 {
                     if (pdfSetName.empty())
-                        throw std::invalid_argument("PDF set name cannot be empty");
+                    {
+                        throw std::invalid_argument(
+                            "PDF set name cannot be empty");
+                    }
+
                     if (setMember < 0)
-                        throw std::invalid_argument("Set member index must be non-negative");
+                    {
+                        throw std::invalid_argument(
+                            "Set member index must be non-negative");
+                    }
+
                     return self.mkCPDF(pdfSetName, setMember);
                 }
                 catch (const std::exception &e)
                 {
-                    throw py::value_error("Error creating CPDF for '" + pdfSetName +
-                                          "': " + e.what());
+                    throw py::value_error(
+                        "Error creating CPDF for '" +
+                        pdfSetName +
+                        "': " +
+                        e.what());
                 }
             },
-            py::arg("pdfSetName"), py::arg("setMember"), py::return_value_policy::take_ownership);
+            py::arg("pdfSetName"),
+            py::arg("setMember"),
+            py::return_value_policy::take_ownership);
 
-    py::class_<PDFxTMD::PDFUncertainty>(m, "PDFUncertainty",
-                                        "Structure holding PDF uncertainty information")
-        .def_readonly("central", &PDFxTMD::PDFUncertainty::central, "Central value of the PDF")
-        .def_readonly("errplus", &PDFxTMD::PDFUncertainty::errplus, "Positive error")
-        .def_readonly("errminus", &PDFxTMD::PDFUncertainty::errminus, "Negative error")
-        .def_readonly("errsymm", &PDFxTMD::PDFUncertainty::errsymm, "Symmetric error")
-        .def_readonly("scale", &PDFxTMD::PDFUncertainty::scale, "Confidence level scale factor")
-        .def_readonly("errplus_pdf", &PDFxTMD::PDFUncertainty::errplus_pdf, "Positive PDF error")
-        .def_readonly("errminus_pdf", &PDFxTMD::PDFUncertainty::errminus_pdf, "Negative PDF error")
-        .def_readonly("errsymm_pdf", &PDFxTMD::PDFUncertainty::errsymm_pdf, "Symmetric PDF error")
-        .def_readonly("errplus_par", &PDFxTMD::PDFUncertainty::errplus_par,
-                      "Positive parameter error")
-        .def_readonly("errminus_par", &PDFxTMD::PDFUncertainty::errminus_par,
-                      "Negative parameter error")
-        .def_readonly("errsymm_par", &PDFxTMD::PDFUncertainty::errsymm_par,
-                      "Symmetric parameter error")
-        .def_property_readonly(
-            "errparts",
-            [](const PDFxTMD::PDFUncertainty &self) {
-                py::list lst;
-                for (const auto &p : self.errparts)
+    py::class_<PDFxTMD::GenericTMDFactory>(
+        m,
+        "GenericTMDFactory",
+        "Factory for creating TMD objects")
+        .def(py::init<>())
+        .def(
+            "mkTMD",
+            [](PDFxTMD::GenericTMDFactory &self,
+               const std::string &pdfSetName,
+               int setMember) {
+                try
                 {
-                    lst.append(py::make_tuple(p.first, p.second));
-                }
-                return lst;
-            },
-            "List of error parts as (plus, minus) tuples");
+                    if (pdfSetName.empty())
+                    {
+                        throw std::invalid_argument(
+                            "PDF set name cannot be empty");
+                    }
 
-    py::class_<PDFxTMD::YamlStandardPDFInfo>(m, "YamlStandardPDFInfo", "Standard PDF metadata")
-        .def_readonly("NumMembers", &PDFxTMD::YamlStandardPDFInfo::NumMembers,
-                      "Number of members in the set")
-        .def_readonly("Flavors", &PDFxTMD::YamlStandardPDFInfo::Flavors,
-                      "List of parton flavors included")
-        .def_readonly("XMin", &PDFxTMD::YamlStandardPDFInfo::XMin, "Minimum value of x")
-        .def_readonly("XMax", &PDFxTMD::YamlStandardPDFInfo::XMax, "Maximum value of x")
-        .def_readonly("QMin", &PDFxTMD::YamlStandardPDFInfo::QMin, "Minimum value of Q")
-        .def_readonly("QMax", &PDFxTMD::YamlStandardPDFInfo::QMax, "Maximum value of Q")
-        .def_readonly("Format", &PDFxTMD::YamlStandardPDFInfo::Format, "Format")
-        .def_readonly("SetDesc", &PDFxTMD::YamlStandardPDFInfo::SetDesc, "SetDesc")
-        .def_readonly("lhapdfID", &PDFxTMD::YamlStandardPDFInfo::lhapdfID, "lhapdfID");
-    py::class_<PDFxTMD::YamlStandardTMDInfo>(m, "YamlStandardTMDInfo", "Standard PDF metadata")
-        .def_readonly("NumMembers", &PDFxTMD::YamlStandardTMDInfo::NumMembers,
-                      "Number of members in the set")
-        .def_readonly("Flavors", &PDFxTMD::YamlStandardTMDInfo::Flavors,
-                      "List of parton flavors included")
-        .def_readonly("XMin", &PDFxTMD::YamlStandardTMDInfo::XMin, "Minimum value of x")
-        .def_readonly("XMax", &PDFxTMD::YamlStandardTMDInfo::XMax, "Maximum value of x")
-        .def_readonly("QMin", &PDFxTMD::YamlStandardTMDInfo::QMin, "Minimum value of Q")
-        .def_readonly("QMax", &PDFxTMD::YamlStandardTMDInfo::QMax, "Maximum value of Q")
-        .def_readonly("Format", &PDFxTMD::YamlStandardTMDInfo::Format, "Format")
-        .def_readonly("lhapdfID", &PDFxTMD::YamlStandardTMDInfo::lhapdfID, "lhapdfID")
-        .def_readonly("KtMin", &PDFxTMD::YamlStandardTMDInfo::KtMin, "KtMin")
-        .def_readonly("KtMax", &PDFxTMD::YamlStandardTMDInfo::KtMax, "KtMax")
-        .def_readonly("SetDesc", &PDFxTMD::YamlStandardPDFInfo::SetDesc, "SetDesc")
-        .def_readonly("TMDScheme", &PDFxTMD::YamlStandardTMDInfo::TMDScheme, "TMDScheme");
+                    if (setMember < 0)
+                    {
+                        throw std::invalid_argument(
+                            "Set member index must be non-negative");
+                    }
 
-    py::class_<PDFxTMD::YamlErrorInfo>(m, "YamlErrorInfo", "PDF error metadata")
-        .def_readonly("ErrorType", &PDFxTMD::YamlErrorInfo::ErrorType,
-                      "Type of error set (e.g., 'replicas', 'hessian')")
-        .def_readonly("ErrorConfLevel", &PDFxTMD::YamlErrorInfo::ErrorConfLevel,
-                      "Confidence level of the error set in percent");
+                    return self.mkTMD(pdfSetName, setMember);
+                }
+                catch (const std::exception &e)
+                {
+                    throw py::value_error(
+                        "Error creating TMD for '" +
+                        pdfSetName +
+                        "': " +
+                        e.what());
+                }
+            },
+            py::arg("pdfSetName"),
+            py::arg("setMember"),
+            py::return_value_policy::take_ownership);
 
-    py::class_<PDFxTMD::ConfigWrapper>(m, "ConfigWrapper", "YAML configuration data wrapper")
+    py::class_<PDFxTMD::GenericCDPDFFactory>(
+        m,
+        "GenericCDPDFFactory",
+        "Factory for creating collinear double PDF objects")
+        .def(py::init<>())
         .def(
-            "get_string",
-            [](const PDFxTMD::ConfigWrapper &self, const std::string &key) {
-                auto result = self.get<std::string>(key);
-                if (result.first)
-                    return *result.first;
-                throw py::key_error("Key '" + key + "' not found or has wrong type.");
-            },
-            py::arg("key"), "Get a value as a string.")
-        .def(
-            "get_int",
-            [](const PDFxTMD::ConfigWrapper &self, const std::string &key) {
-                auto result = self.get<int>(key);
-                if (result.first)
-                    return *result.first;
-                throw py::key_error("Key '" + key + "' not found or has wrong type.");
-            },
-            py::arg("key"), "Get a value as an integer.")
-        .def(
-            "get_double",
-            [](const PDFxTMD::ConfigWrapper &self, const std::string &key) {
-                auto result = self.get<double>(key);
-                if (result.first)
-                    return *result.first;
-                throw py::key_error("Key '" + key + "' not found or has wrong type.");
-            },
-            py::arg("key"), "Get a value as a double.")
-        .def(
-            "get_string_vector",
-            [](const PDFxTMD::ConfigWrapper &self, const std::string &key) {
-                auto result = self.get<std::vector<std::string>>(key);
-                if (result.first)
-                    return *result.first;
-                throw py::key_error("Key '" + key + "' not found or has wrong type.");
-            },
-            py::arg("key"), "Get a value as a list of strings.");
-    // Bind CPDFSet
-    py::class_<PDFxTMD::PDFSet<PDFxTMD::CollinearPDFTag>>(
-        m, "CPDFSet", "Class representing a set of Collinear PDFs")
-        .def(py::init([](const std::string &pdfSetName, bool alternativeReplicaUncertainty) {
-                 try
-                 {
-                     if (pdfSetName.empty())
-                         throw std::invalid_argument("PDF set name cannot be empty");
-                     return std::make_unique<PDFxTMD::PDFSet<PDFxTMD::CollinearPDFTag>>(
-                         pdfSetName, alternativeReplicaUncertainty);
-                 }
-                 catch (const std::exception &e)
-                 {
-                     throw py::value_error("Error initializing CPDFSet for '" + pdfSetName +
-                                           "': " + e.what());
-                 }
-             }),
-             py::arg("pdfSetName"), py::arg("alternativeReplicaUncertainty") = false,
-             "Initialize a CPDFSet.\n\n"
-             "Args:\n"
-             "    pdfSetName (str): Name of the PDF set.\n"
-             "    alternativeReplicaUncertainty (bool, optional): Use alternative replica "
-             "uncertainty method. Default is False.")
-        .def(
-            "alphasQ",
-            [](const PDFxTMD::PDFSet<PDFxTMD::CollinearPDFTag> &self, double q) {
+            "mkCDPDF",
+            [](PDFxTMD::GenericCDPDFFactory &self,
+               const std::string &pdfSetName,
+               int setMember) {
                 try
                 {
-                    if (q <= 0)
-                        throw std::invalid_argument("Scale Q must be positive");
-                    return self.alphasQ(q);
-                }
-                catch (const std::exception &e)
-                {
-                    throw py::value_error("Error calculating alpha_s at Q=" + std::to_string(q) +
-                                          ": " + e.what());
-                }
-            },
-            py::arg("q"), "Calculate alpha_s at scale Q.")
-        .def(
-            "alphasQ2",
-            [](const PDFxTMD::PDFSet<PDFxTMD::CollinearPDFTag> &self, double q2) {
-                try
-                {
-                    if (q2 <= 0)
-                        throw std::invalid_argument("Scale Q^2 must be positive");
-                    return self.alphasQ2(q2);
-                }
-                catch (const std::exception &e)
-                {
-                    throw py::value_error("Error calculating alpha_s at Q^2=" + std::to_string(q2) +
-                                          ": " + e.what());
-                }
-            },
-            py::arg("q2"), "Calculate alpha_s at scale Q^2.")
-        .def(
-            "__getitem__",
-            [](PDFxTMD::PDFSet<PDFxTMD::CollinearPDFTag> &self, int member) {
-                try
-                {
-                    PDFxTMD::ICPDF *pdf = self[member];
-                    if (!pdf)
-                        throw py::index_error("Member index " + std::to_string(member) +
-                                              " out of range");
-                    return pdf;
-                }
-                catch (const std::exception &e)
-                {
-                    throw py::value_error("Error accessing member " + std::to_string(member) +
-                                          ": " + e.what());
-                }
-            },
-            py::return_value_policy::reference_internal, py::arg("member"),
-            "Get the CPDF object for the specified member index.")
-        .def_property_readonly("size", &PDFxTMD::PDFSet<PDFxTMD::CollinearPDFTag>::size,
-                               "Number of members in the PDF set.")
-        .def("__len__", &PDFxTMD::PDFSet<PDFxTMD::CollinearPDFTag>::size,
-             "Return the number of members in the PDF set.")
-        .def(
-            "Uncertainty",
-            [](PDFxTMD::PDFSet<PDFxTMD::CollinearPDFTag> &self, PDFxTMD::PartonFlavor flavor,
-               double x, double mu2, double cl) {
-                try
-                {
-                    if (x <= 0 || x >= 1)
-                        throw std::invalid_argument("Momentum fraction x must be in (0, 1)");
-                    if (mu2 <= 0)
+                    if (pdfSetName.empty())
+                    {
                         throw std::invalid_argument(
-                            "Factorization scale squared mu2 must be positive");
-                    return self.Uncertainty(flavor, x, mu2, cl);
-                }
-                catch (const std::exception &e)
-                {
-                    throw py::value_error("Error calculating uncertainty: " +
-                                          std::string(e.what()));
-                }
-            },
-            py::arg("flavor"), py::arg("x"), py::arg("mu2"), py::arg("cl") = -1,
-            "Calculate uncertainty for the specified flavor and kinematics.\n\n"
-            "Args:\n"
-            "    flavor (PartonFlavor): Parton flavor.\n"
-            "    x (float): Momentum fraction (0 < x < 1).\n"
-            "    mu2 (float): Factorization scale squared (GeV^2, positive).\n"
-            "    cl (float, optional): Confidence level percentage (-1 for default).")
-        .def(
-            "uncertainty",
-            [](PDFxTMD::PDFSet<PDFxTMD::CollinearPDFTag> &self, const std::vector<double> &values,
-               double cl) {
-                try
-                {
-                    return self.Uncertainty(values, cl);
-                }
-                catch (const std::exception &e)
-                {
-                    throw py::value_error("Error calculating uncertainty from values: " +
-                                          std::string(e.what()));
-                }
-            },
-            py::arg("values"), py::arg("cl") = -1,
-            "Calculate uncertainty from a vector of PDF values.")
-        .def(
-            "Correlation",
-            [](PDFxTMD::PDFSet<PDFxTMD::CollinearPDFTag> &self, PDFxTMD::PartonFlavor flavorA,
-               double xA, double mu2A, PDFxTMD::PartonFlavor flavorB, double xB, double mu2B) {
-                try
-                {
-                    if (xA <= 0 || xA >= 1 || xB <= 0 || xB >= 1)
-                        throw std::invalid_argument("Momentum fractions must be in (0, 1)");
-                    if (mu2A <= 0 || mu2B <= 0)
-                        throw std::invalid_argument(
-                            "Factorization scales squared must be positive");
-                    return self.Correlation(flavorA, xA, mu2A, flavorB, xB, mu2B);
-                }
-                catch (const std::exception &e)
-                {
-                    throw py::value_error("Error calculating correlation: " +
-                                          std::string(e.what()));
-                }
-            },
-            py::arg("flavorA"), py::arg("xA"), py::arg("mu2A"), py::arg("flavorB"), py::arg("xB"),
-            py::arg("mu2B"), "Calculate correlation between two PDF points.")
-        .def(
-            "Correlation",
-            [](PDFxTMD::PDFSet<PDFxTMD::CollinearPDFTag> &self, const std::vector<double> &valuesA,
-               const std::vector<double> &valuesB) {
-                try
-                {
-                    return self.Correlation(valuesA, valuesB);
-                }
-                catch (const std::exception &e)
-                {
-                    throw py::value_error("Error calculating correlation from values: " +
-                                          std::string(e.what()));
-                }
-            },
-            py::arg("valuesA"), py::arg("valuesB"),
-            "Calculate correlation between two vectors of PDF values.")
-        .def("getStdPDFInfo", &PDFxTMD::PDFSet<PDFxTMD::CollinearPDFTag>::getStdPDFInfo,
-             py::return_value_policy::move, "Get the standard metadata info object for the set.")
-        .def("getPDFErrorInfo", &PDFxTMD::PDFSet<PDFxTMD::CollinearPDFTag>::getPDFErrorInfo,
-             py::return_value_policy::move, "Get the error metadata info object for the set.")
-        .def("info", &PDFxTMD::PDFSet<PDFxTMD::CollinearPDFTag>::info,
-             py::return_value_policy::move, "Get the configuration info object for the set.");
+                            "DPDF set name cannot be empty");
+                    }
 
-    // Bind TMDSet
-    py::class_<PDFxTMD::PDFSet<PDFxTMD::TMDPDFTag>>(m, "TMDSet",
-                                                    "Class representing a set of TMD PDFs")
-        .def(py::init([](const std::string &pdfSetName, bool alternativeReplicaUncertainty) {
-                 try
-                 {
-                     if (pdfSetName.empty())
-                         throw std::invalid_argument("PDF set name cannot be empty");
-                     return std::make_unique<PDFxTMD::PDFSet<PDFxTMD::TMDPDFTag>>(
-                         pdfSetName, alternativeReplicaUncertainty);
-                 }
-                 catch (const std::exception &e)
-                 {
-                     throw py::value_error("Error initializing TMDSet for '" + pdfSetName +
-                                           "': " + e.what());
-                 }
-             }),
-             py::arg("pdfSetName"), py::arg("alternativeReplicaUncertainty") = false,
-             "Initialize a TMDSet.\n\n"
-             "Args:\n"
-             "    pdfSetName (str): Name of the PDF set.\n"
-             "    alternativeReplicaUncertainty (bool, optional): Use alternative replica "
-             "uncertainty method. Default is False.")
-        .def(
-            "alphasQ",
-            [](const PDFxTMD::PDFSet<PDFxTMD::TMDPDFTag> &self, double q) {
-                try
-                {
-                    if (q <= 0)
-                        throw std::invalid_argument("Scale Q must be positive");
-                    return self.alphasQ(q);
-                }
-                catch (const std::exception &e)
-                {
-                    throw py::value_error("Error calculating alpha_s at Q=" + std::to_string(q) +
-                                          ": " + e.what());
-                }
-            },
-            py::arg("q"), "Calculate alpha_s at scale Q.")
-        .def(
-            "alphasQ2",
-            [](const PDFxTMD::PDFSet<PDFxTMD::TMDPDFTag> &self, double q2) {
-                try
-                {
-                    if (q2 <= 0)
-                        throw std::invalid_argument("Scale Q^2 must be positive");
-                    return self.alphasQ2(q2);
-                }
-                catch (const std::exception &e)
-                {
-                    throw py::value_error("Error calculating alpha_s at Q^2=" + std::to_string(q2) +
-                                          ": " + e.what());
-                }
-            },
-            py::arg("q2"), "Calculate alpha_s at scale Q^2.")
-        .def(
-            "__getitem__",
-            [](PDFxTMD::PDFSet<PDFxTMD::TMDPDFTag> &self, int member) {
-                try
-                {
-                    PDFxTMD::ITMD *pdf = self[member];
-                    if (!pdf)
-                        throw py::index_error("Member index " + std::to_string(member) +
-                                              " out of range");
-                    return pdf;
-                }
-                catch (const std::exception &e)
-                {
-                    throw py::value_error("Error accessing member " + std::to_string(member) +
-                                          ": " + e.what());
-                }
-            },
-            py::return_value_policy::reference_internal, py::arg("member"),
-            "Get the TMD object for the specified member index.")
-        .def_property_readonly("size", &PDFxTMD::PDFSet<PDFxTMD::TMDPDFTag>::size,
-                               "Number of members in the PDF set.")
-        .def("__len__", &PDFxTMD::PDFSet<PDFxTMD::TMDPDFTag>::size,
-             "Return the number of members in the PDF set.")
-        .def(
-            "Uncertainty",
-            [](PDFxTMD::PDFSet<PDFxTMD::TMDPDFTag> &self, PDFxTMD::PartonFlavor flavor, double x,
-               double kt2, double mu2, double cl) {
-                try
-                {
-                    if (x <= 0 || x >= 1)
-                        throw std::invalid_argument("Momentum fraction x must be in (0, 1)");
-                    if (kt2 < 0)
+                    if (setMember < 0)
+                    {
                         throw std::invalid_argument(
-                            "Transverse momentum squared kt2 must be non-negative");
-                    if (mu2 <= 0)
-                        throw std::invalid_argument(
-                            "Factorization scale squared mu2 must be positive");
-                    return self.Uncertainty(flavor, x, kt2, mu2, cl);
+                            "Set member index must be non-negative");
+                    }
+
+                    return self.mkCDPDF(pdfSetName, setMember);
                 }
                 catch (const std::exception &e)
                 {
-                    throw py::value_error("Error calculating uncertainty: " +
-                                          std::string(e.what()));
+                    throw py::value_error(
+                        "Error creating CDPDF/DPDF for '" +
+                        pdfSetName +
+                        "': " +
+                        e.what());
                 }
             },
-            py::arg("flavor"), py::arg("x"), py::arg("kt2"), py::arg("mu2"), py::arg("cl") = -1,
-            "Calculate uncertainty for the specified flavor and kinematics.\n\n"
-            "Args:\n"
-            "    flavor (PartonFlavor): Parton flavor.\n"
-            "    x (float): Momentum fraction (0 < x < 1).\n"
-            "    kt2 (float): Transverse momentum squared (GeV^2, non-negative).\n"
-            "    mu2 (float): Factorization scale squared (GeV^2, positive).\n"
-            "    cl (float, optional): Confidence level percentage (-1 for default).")
+            py::arg("pdfSetName"),
+            py::arg("setMember"),
+            py::return_value_policy::take_ownership);
+
+    py::class_<PDFxTMD::CollinearPDF>(
+        m,
+        "CollinearPDF",
+        "Concrete collinear single PDF object")
         .def(
-            "Uncertainty",
-            [](PDFxTMD::PDFSet<PDFxTMD::TMDPDFTag> &self, const std::vector<double> &values,
-               double cl) {
+            py::init<const std::string &, int>(),
+            py::arg("pdfSetName"),
+            py::arg("setMember"))
+        .def(
+            "pdf",
+            [](PDFxTMD::CollinearPDF &self,
+               PDFxTMD::PartonFlavor flavor,
+               double x,
+               double mu2) {
                 try
                 {
-                    return self.Uncertainty(values, cl);
+                    validate_x(x, "x");
+                    validate_mu2(mu2, "mu2");
+
+                    return self.pdf(flavor, x, mu2);
                 }
                 catch (const std::exception &e)
                 {
-                    throw py::value_error("Error calculating uncertainty from values: " +
-                                          std::string(e.what()));
+                    throw py::value_error(
+                        "Error evaluating CollinearPDF: " +
+                        std::string(e.what()));
                 }
             },
-            py::arg("values"), py::arg("cl") = -1.0,
-            "Calculate uncertainty from a vector of PDF values.")
+            py::arg("flavor"),
+            py::arg("x"),
+            py::arg("mu2"))
         .def(
-            "Correlation",
-            [](PDFxTMD::PDFSet<PDFxTMD::TMDPDFTag> &self, PDFxTMD::PartonFlavor flavorA, double xA,
-               double kt2A, double mu2A, PDFxTMD::PartonFlavor flavorB, double xB, double kt2B,
-               double mu2B) {
+            "pdf_batch",
+            [](PDFxTMD::CollinearPDF &self,
+               PDFxTMD::PartonFlavor flavor,
+               DoubleArray x,
+               DoubleArray mu2) {
                 try
                 {
-                    if (xA <= 0 || xA >= 1 || xB <= 0 || xB >= 1)
-                        throw std::invalid_argument("Momentum fractions must be in (0, 1)");
-                    if (kt2A < 0 || kt2B < 0)
-                        throw std::invalid_argument(
-                            "Transverse momentum squared must be non-negative");
-                    if (mu2A <= 0 || mu2B <= 0)
-                        throw std::invalid_argument(
-                            "Factorization scales squared must be positive");
-                    return self.Correlation(flavorA, xA, kt2A, mu2A, flavorB, xB, kt2B, mu2B);
+                    return pdf_batch_numpy_impl(self, flavor, x, mu2);
                 }
                 catch (const std::exception &e)
                 {
-                    throw py::value_error("Error calculating correlation: " +
-                                          std::string(e.what()));
+                    throw py::value_error(
+                        "Error evaluating CollinearPDF NumPy batch: " +
+                        std::string(e.what()));
                 }
             },
-            py::arg("flavorA"), py::arg("xA"), py::arg("kt2A"), py::arg("mu2A"), py::arg("flavorB"),
-            py::arg("xB"), py::arg("kt2B"), py::arg("mu2B"),
-            "Calculate correlation between two TMD PDF points.")
+            py::arg("flavor"),
+            py::arg("x"),
+            py::arg("mu2"),
+            "Evaluate one collinear PDF flavor for a NumPy array of points.")
         .def(
-            "Correlation",
-            [](PDFxTMD::PDFSet<PDFxTMD::TMDPDFTag> &self, const std::vector<double> &valuesA,
-               const std::vector<double> &valuesB) {
+            "pdf_all",
+            [](PDFxTMD::CollinearPDF &self,
+               double x,
+               double mu2) {
                 try
                 {
-                    return self.Correlation(valuesA, valuesB);
+                    validate_x(x, "x");
+                    validate_mu2(mu2, "mu2");
+
+                    std::array<double, 13> temp;
+                    self.pdf(x, mu2, temp);
+
+                    return std::vector<double>(temp.begin(), temp.end());
                 }
                 catch (const std::exception &e)
                 {
-                    throw py::value_error("Error calculating correlation from values: " +
-                                          std::string(e.what()));
+                    throw py::value_error(
+                        "Error evaluating all CollinearPDF flavors: " +
+                        std::string(e.what()));
                 }
             },
-            py::arg("valuesA"), py::arg("valuesB"),
-            "Calculate correlation between two vectors of PDF values.")
-        .def("getStdPDFInfo", &PDFxTMD::PDFSet<PDFxTMD::TMDPDFTag>::getStdPDFInfo,
-             py::return_value_policy::move, "Get the standard metadata info object for the set.")
-        .def("getPDFErrorInfo", &PDFxTMD::PDFSet<PDFxTMD::TMDPDFTag>::getPDFErrorInfo,
-             py::return_value_policy::move, "Get the error metadata info object for the set.")
-        .def("info", &PDFxTMD::PDFSet<PDFxTMD::TMDPDFTag>::info, py::return_value_policy::move,
-             "Get the configuration info object for the set.");
+            py::arg("x"),
+            py::arg("mu2"));
+
+    py::class_<PDFxTMD::TMDPDF>(
+        m,
+        "TMDPDF",
+        "Concrete TMD PDF object")
+        .def(
+            py::init<const std::string &, int>(),
+            py::arg("pdfSetName"),
+            py::arg("setMember"))
+        .def(
+            "tmd",
+            [](PDFxTMD::TMDPDF &self,
+               PDFxTMD::PartonFlavor flavor,
+               double x,
+               double kt2,
+               double mu2) {
+                try
+                {
+                    validate_x(x, "x");
+                    validate_kt2(kt2);
+                    validate_mu2(mu2, "mu2");
+
+                    return self.tmd(flavor, x, kt2, mu2);
+                }
+                catch (const std::exception &e)
+                {
+                    throw py::value_error(
+                        "Error evaluating TMDPDF: " +
+                        std::string(e.what()));
+                }
+            },
+            py::arg("flavor"),
+            py::arg("x"),
+            py::arg("kt2"),
+            py::arg("mu2"))
+        .def(
+            "tmd_all",
+            [](PDFxTMD::TMDPDF &self,
+               double x,
+               double kt2,
+               double mu2) {
+                try
+                {
+                    validate_x(x, "x");
+                    validate_kt2(kt2);
+                    validate_mu2(mu2, "mu2");
+
+                    std::array<double, 13> temp;
+                    self.tmd(x, kt2, mu2, temp);
+
+                    return std::vector<double>(temp.begin(), temp.end());
+                }
+                catch (const std::exception &e)
+                {
+                    throw py::value_error(
+                        "Error evaluating all TMDPDF flavors: " +
+                        std::string(e.what()));
+                }
+            },
+            py::arg("x"),
+            py::arg("kt2"),
+            py::arg("mu2"));
+
+    py::class_<PDFxTMD::CollinearDPDF>(
+        m,
+        "CollinearDPDF",
+        "Concrete collinear double PDF object")
+        .def(
+            py::init<const std::string &, int>(),
+            py::arg("pdfSetName"),
+            py::arg("setMember"))
+        .def(
+            "dpdf",
+            [](PDFxTMD::CollinearDPDF &self,
+               PDFxTMD::PartonFlavor flavor1,
+               PDFxTMD::PartonFlavor flavor2,
+               double x1,
+               double mu1_2,
+               double x2,
+               double mu2_2,
+               bool enforce_support) {
+                try
+                {
+                    validate_dpdf_kinematics(x1, mu1_2, x2, mu2_2);
+
+                    if (enforce_support && outside_dpdf_support(x1, x2))
+                    {
+                        return 0.0;
+                    }
+
+                    return self.dpdf(
+                        flavor1,
+                        flavor2,
+                        x1,
+                        mu1_2,
+                        x2,
+                        mu2_2);
+                }
+                catch (const std::exception &e)
+                {
+                    throw py::value_error(
+                        "Error evaluating CollinearDPDF: " +
+                        std::string(e.what()));
+                }
+            },
+            py::arg("flavor1"),
+            py::arg("flavor2"),
+            py::arg("x1"),
+            py::arg("mu1_2"),
+            py::arg("x2"),
+            py::arg("mu2_2"),
+            py::arg("enforce_support") = true)
+        .def(
+            "dpdf_batch",
+            [](PDFxTMD::CollinearDPDF &self,
+               PDFxTMD::PartonFlavor flavor1,
+               PDFxTMD::PartonFlavor flavor2,
+               DoubleArray x1,
+               DoubleArray mu1_2,
+               DoubleArray x2,
+               DoubleArray mu2_2,
+               bool enforce_support) {
+                try
+                {
+                    return dpdf_batch_numpy_impl(
+                        self,
+                        flavor1,
+                        flavor2,
+                        x1,
+                        mu1_2,
+                        x2,
+                        mu2_2,
+                        enforce_support);
+                }
+                catch (const std::exception &e)
+                {
+                    throw py::value_error(
+                        "Error evaluating CollinearDPDF NumPy batch: " +
+                        std::string(e.what()));
+                }
+            },
+            py::arg("flavor1"),
+            py::arg("flavor2"),
+            py::arg("x1"),
+            py::arg("mu1_2"),
+            py::arg("x2"),
+            py::arg("mu2_2"),
+            py::arg("enforce_support") = true,
+            "Evaluate many DPDF points for one flavor pair from NumPy arrays.")
+        .def(
+            "dpdf_batch",
+            [](PDFxTMD::CollinearDPDF &self,
+               PDFxTMD::PartonFlavor flavor1,
+               PDFxTMD::PartonFlavor flavor2,
+               const std::vector<double> &x1,
+               const std::vector<double> &mu1_2,
+               const std::vector<double> &x2,
+               const std::vector<double> &mu2_2,
+               bool enforce_support) {
+                try
+                {
+                    validate_same_size(x1, mu1_2, x2, mu2_2);
+
+                    std::vector<double> values;
+                    values.reserve(x1.size());
+
+                    for (std::size_t i = 0; i < x1.size(); ++i)
+                    {
+                        validate_dpdf_kinematics(
+                            x1[i],
+                            mu1_2[i],
+                            x2[i],
+                            mu2_2[i]);
+
+                        if (enforce_support && outside_dpdf_support(x1[i], x2[i]))
+                        {
+                            values.push_back(0.0);
+                        }
+                        else
+                        {
+                            values.push_back(
+                                self.dpdf(
+                                    flavor1,
+                                    flavor2,
+                                    x1[i],
+                                    mu1_2[i],
+                                    x2[i],
+                                    mu2_2[i]));
+                        }
+                    }
+
+                    return values;
+                }
+                catch (const std::exception &e)
+                {
+                    throw py::value_error(
+                        "Error evaluating CollinearDPDF batch: " +
+                        std::string(e.what()));
+                }
+            },
+            py::arg("flavor1"),
+            py::arg("flavor2"),
+            py::arg("x1"),
+            py::arg("mu1_2"),
+            py::arg("x2"),
+            py::arg("mu2_2"),
+            py::arg("enforce_support") = true);
 }

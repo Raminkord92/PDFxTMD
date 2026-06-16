@@ -5,7 +5,7 @@ project(PDFxTMDLib VERSION ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${P
 
 option(ENABLE_FORMATTING "Enable code formatting" OFF)
 option(ENABLE_DOCUMENTATION "Enable documentation generation" OFF)
-option(ENABLE_BUILDING_WRAPPERS "Enable building wrappers" OFF)
+option(ENABLE_BUILDING_WRAPPERS "Enable building wrappers" ON)
 option(ENABLE_BUILDING_EXAMPLES "Enable building examples" ON)
 
 find_library(ZSTD_LIBRARY NAMES zstd)
@@ -52,6 +52,7 @@ else()
 endif()
 
 set(ALL_SOURCES
+    src/Common/typeUtils.cpp
     src/Common/MathUtils.cpp
     src/Common/PartonUtils.cpp 
     src/Common/YamlMetaInfo/YamlCouplingInfo.cpp
