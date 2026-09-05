@@ -207,14 +207,32 @@ std::vector<std::string> GetPDFxTMDPathsFromYaml()
     {
 
         std::ofstream ofs(configFilePath);
-        ofs << "paths: " << std::endl;
+        // Make the default PDF-set location visible in the generated config.
+        // GetPDFxTMDPathsAsVector() also adds this path internally, and its
+        // std::set removes the duplicate.
+        ofs << "paths:" << std::endl;
+        ofs << "  - " << DEFAULT_ENV_PATH << std::endl;
         ofs.close();
         return {};
     }
-    config.loadFromFile(configFilePath, PDFxTMD::ConfigWrapper::Format::YAML);
+    if (!config.loadFromFile(configFilePath, PDFxTMD::ConfigWrapper::Format::YAML))
+    {
+        std::cerr << "[PDFxTMD] Warning: ignoring custom paths from '" << configFilePath
+                  << "'. The default PDF-set path and current working directory will be used."
+                  << std::endl;
+        return {};
+    }
 
-    auto pathsPair = config.get<std::vector<std::string>>("paths");
-    return *pathsPair.first;
+    auto [paths, error] = config.get<std::vector<std::string>>("paths");
+    if (error != ErrorType::None || !paths.has_value())
+    {
+        std::cerr << "[PDFxTMD] Warning: 'paths' in '" << configFilePath
+                  << "' must be a YAML sequence. The default PDF-set path and current working "
+                     "directory will be used."
+                  << std::endl;
+        return {};
+    }
+    return *paths;
 }
 
 bool AddPathToEnvironment(const std::string &newPath)

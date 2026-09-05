@@ -135,7 +135,7 @@ std::pair<std::optional<YamlCouplingInfo>, ErrorType> YamlCouplingInfoReader(
     if (!isFlavorSchemeObtained)
     {
         auto [FlavorScheme, FlavorSchemeError] = ConfigWrapper.get<std::string>("FlavorScheme");
-        if (FlavorSchemeError != ErrorType::None)
+        if (FlavorSchemeError == ErrorType::None && FlavorScheme.has_value())
         {
             flavorScheme = ToLower(*FlavorScheme);
             isFlavorSchemeObtained = true;
@@ -153,7 +153,7 @@ std::pair<std::optional<YamlCouplingInfo>, ErrorType> YamlCouplingInfoReader(
     if (!isNumFlavorsObtained)
     {
         auto [NumFlavors, NumFlavorsError] = ConfigWrapper.get<int>("NumFlavors");
-        if (NumFlavorsError != ErrorType::None)
+        if (NumFlavorsError == ErrorType::None && NumFlavors.has_value())
         {
             numFlavors = *NumFlavors;
             isNumFlavorsObtained = true;

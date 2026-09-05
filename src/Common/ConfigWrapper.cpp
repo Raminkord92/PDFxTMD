@@ -2,6 +2,36 @@
 #include "PDFxTMDLib/external/rapidyaml/rapidyaml-0.9.0.hpp"
 #include "PDFxTMDLib/Common/ConfigWrapper.h"
 #include <filesystem>
+#include <iostream>
+#include <stdexcept>
+
+namespace
+{
+[[noreturn]] void throwYamlError(const char *message, size_t length, ryml::Location location,
+                                 void *)
+{
+    std::string error(message, length);
+    while (!error.empty() && (error.back() == '\n' || error.back() == '\r'))
+    {
+        error.pop_back();
+    }
+    if (location)
+    {
+        error += " (line " + std::to_string(location.line) + ", column " +
+                 std::to_string(location.col) + ")";
+    }
+    throw std::runtime_error(error);
+}
+
+ryml::Tree parseYaml(ryml::csubstr yaml)
+{
+    ryml::Callbacks callbacks;
+    callbacks.m_error = &throwYamlError;
+    ryml::Parser::handler_type eventHandler(callbacks);
+    ryml::Parser parser(&eventHandler);
+    return ryml::parse_in_arena(&parser, yaml);
+}
+} // namespace
 
 namespace PDFxTMD
 {
@@ -33,7 +63,7 @@ bool ConfigWrapper::loadFromString(const std::string &data_string, Format format
         {
             // FIX: Use parse_in_arena to copy the data into the tree's own memory.
             // We can parse directly from the string without needing a separate buffer.
-            data.tree = ryml::parse_in_arena(ryml::to_csubstr(data_string));
+            data.tree = parseYaml(ryml::to_csubstr(data_string));
 
             if (!data.tree.rootref().is_map())
             {
@@ -44,8 +74,10 @@ bool ConfigWrapper::loadFromString(const std::string &data_string, Format format
             data.format = format;
             return true;
         }
-        catch (const std::exception &)
+        catch (const std::exception &e)
         {
+            std::cerr << "[PDFxTMD] Warning: unable to parse YAML data: " << e.what()
+                      << std::endl;
             initializeEmptyYAML();
             return false;
         }
@@ -71,7 +103,7 @@ bool ConfigWrapper::loadFromFile(const std::filesystem::path &filepath, Format f
         try
         {
             // FIX: Use parse_in_arena to copy the data into the tree's own memory.
-            data.tree = ryml::parse_in_arena(ryml::csubstr(buffer.data(), buffer.size()));
+            data.tree = parseYaml(ryml::csubstr(buffer.data(), buffer.size()));
 
             if (!data.tree.rootref().is_map())
             {
@@ -91,7 +123,8 @@ bool ConfigWrapper::loadFromFile(const std::filesystem::path &filepath, Format f
         }
         catch (const std::exception &e)
         {
-            std::cout << "[PDFxTMD] " << e.what() << std::endl;
+            std::cerr << "[PDFxTMD] Warning: unable to parse YAML file '" << filepath.string()
+                      << "': " << e.what() << std::endl;
             initializeEmptyYAML();
             return false;
         }
