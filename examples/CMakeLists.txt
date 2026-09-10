@@ -30,6 +30,10 @@ add_executable(AdvancedUsage_tutorial AdvancedUsage_tutorial.cpp)
 target_link_libraries(AdvancedUsage_tutorial PRIVATE PDFxTMDLib)
 target_include_directories(AdvancedUsage_tutorial PRIVATE "../include")
 
+add_executable(DPDFTutorial DPDFTutorial.cpp)
+target_link_libraries(DPDFTutorial PRIVATE PDFxTMDLib)
+target_include_directories(DPDFTutorial PRIVATE "../include")
+
 if (NOT WIN32)
     if (CMAKE_Fortran_COMPILER)
         add_subdirectory(Fortran)

@@ -5,8 +5,10 @@ project(PDFxTMDLib VERSION ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${P
 
 option(ENABLE_FORMATTING "Enable code formatting" OFF)
 option(ENABLE_DOCUMENTATION "Enable documentation generation" OFF)
-option(ENABLE_BUILDING_WRAPPERS "Enable building wrappers" OFF)
-option(ENABLE_BUILDING_EXAMPLES "Enable building examples" OFF)
+option(ENABLE_BUILDING_WRAPPERS "Enable building wrappers" ON)
+option(ENABLE_BUILDING_EXAMPLES "Enable building examples" ON)
+
+find_library(ZSTD_LIBRARY NAMES zstd)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -34,7 +36,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     if(IS_X86)
         add_compile_options(-mavx2 -mfma)
     endif()
-    add_compile_options("$<$<CONFIG:Release>:-O3>")
+    #    add_compile_options("$<$<CONFIG:Release>:-O3>")
     add_compile_options("$<$<CONFIG:Debug>:-O0;-g>")
     if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 11)
         add_compile_options("$<$<CONFIG:Release>:-flto=auto>")
@@ -50,6 +52,7 @@ else()
 endif()
 
 set(ALL_SOURCES
+    src/Common/typeUtils.cpp
     src/Common/MathUtils.cpp
     src/Common/PartonUtils.cpp 
     src/Common/YamlMetaInfo/YamlCouplingInfo.cpp
@@ -57,9 +60,11 @@ set(ALL_SOURCES
     src/Common/YamlMetaInfo/YamlStandardPDFInfo.cpp
     src/Common/YamlMetaInfo/YamlErrorInfo.cpp
     src/Common/PDFErrInfo.cpp
-    src/Implementation/Reader/Collinear/CDefaultLHAPDFFileReader.cpp
-    src/Implementation/Reader/TMD/TDefaultLHAPDF_TMDReader.cpp
-    src/Implementation/Reader/TMD/TDefaultAllFlavorReader.cpp
+    src/Common/DPDF/UnequalScaleGrid.cpp
+    src/Implementation/Reader/Collinear/SPDF/CDefaultLHAPDFFileReader.cpp
+    src/Implementation/Reader/TMD/SPDF/TDefaultLHAPDF_TMDReader.cpp
+    src/Implementation/Reader/TMD/SPDF/TDefaultAllFlavorReader.cpp
+    src/Implementation/Reader/Collinear/DPDF/CDefaultDPDFReader.cpp
     src/Factory.cpp
     src/FortranFactoryWrapper.cpp
     src/Common/FileUtils.cpp
@@ -88,7 +93,8 @@ if(WIN32)
     )
 else()
     add_library(${PROJECT_NAME} SHARED ${ALL_SOURCES})
-    target_link_libraries(${PROJECT_NAME})
+    target_link_libraries(${PROJECT_NAME} PRIVATE ${ZSTD_LIBRARY})
+
     set_target_properties(${PROJECT_NAME} PROPERTIES DEBUG_POSTFIX "d")
     target_include_directories(${PROJECT_NAME} 
         PUBLIC 
@@ -101,7 +107,7 @@ else()
         OUTPUT_NAME ${PROJECT_NAME}
         DEBUG_POSTFIX "d"
     )
-    target_link_libraries(${PROJECT_NAME}_static  )
+    target_link_libraries(${PROJECT_NAME}_static  PRIVATE PRIVATE ${ZSTD_LIBRARY})
     target_include_directories(${PROJECT_NAME}_static 
         PUBLIC 
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

@@ -1,8 +1,9 @@
 #pragma once
 #include "PDFxTMDLib/GenericPDF.h"
-#include "PDFxTMDLib/Interface/ICPDF.h"
+#include "PDFxTMDLib/Interface/SPDF/ICPDF.h"
+#include "PDFxTMDLib/Interface/SPDF/ITMD.h"
+#include "PDFxTMDLib/Interface/DPDF/ICDPDF.h"
 #include "PDFxTMDLib/Interface/IQCDCoupling.h"
-#include "PDFxTMDLib/Interface/ITMD.h"
 
 namespace PDFxTMD
 {
@@ -92,5 +93,20 @@ class GenericCPDFFactory
      * @return ICPDF The newly created ICPDF object
      */
     ICPDF mkCPDF(const std::string &pdfSetName, int setMember);
+};
+
+
+class GenericCDPDFFactory
+{
+  public:
+    GenericCDPDFFactory() = default;
+    /**
+     * @brief Creates a new ICPDF object
+     *
+     * @param pdfSetName The name of the PDF set
+     * @param setMember The member number of the PDF set
+     * @return ICPDF The newly created ICPDF object
+     */
+    ICDPDF mkCDPDF(const std::string &pdfSetName, int setMember);
 };
 } // namespace PDFxTMD

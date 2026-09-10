@@ -1,7 +1,7 @@
 #include <PDFxTMDLib/GenericPDF.h>
-#include <PDFxTMDLib/Implementation/Extrapolator/Collinear/CErrExtrapolator.h>
-#include <PDFxTMDLib/Implementation/Interpolator/Collinear/CLHAPDFBilinearInterpolator.h>
-#include <PDFxTMDLib/Implementation/Reader/Collinear/CDefaultLHAPDFFileReader.h>
+#include <PDFxTMDLib/Implementation/Extrapolator/Collinear/SPDF/CErrExtrapolator.h>
+#include <PDFxTMDLib/Implementation/Interpolator/Collinear/SPDF/CLHAPDFBilinearInterpolator.h>
+#include <PDFxTMDLib/Implementation/Reader/Collinear/SPDF/CDefaultLHAPDFFileReader.h>
 #include <iostream>
 
 constexpr const char *PartonFlavorToString(const int flavorIndex)

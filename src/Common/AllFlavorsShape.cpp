@@ -1,4 +1,4 @@
-#include "PDFxTMDLib/Common/AllFlavorsShape.h"
+#include "PDFxTMDLib/Common/SPDF/AllFlavorsShape.h"
 
 namespace PDFxTMD
 {

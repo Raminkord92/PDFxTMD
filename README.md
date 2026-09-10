@@ -6,14 +6,7 @@
 
 **PDFxTMDLib** is a high-performance C++ library for parton distribution functions (PDFs), supporting both collinear PDFs (cPDFs) and transverse momentum-dependent PDFs (TMDs). It is designed with modern C++17 principles for performance and extensibility, and provides interfaces for reading standard PDF grid files (LHAPDF, TMDLib) as well as custom formats.
 
-For a comprehensive understanding of the library's architecture, features, and performance benchmarks, please refer to the full paper available on arXiv: [https://arxiv.org/abs/2412.16680](https://arxiv.org/abs/2412.16680), and [https://link.springer.com/article/10.1007/s41781-025-00157-0](https://link.springer.com/article/10.1007/s41781-025-00157-0).
-
----
-## Citation
-
-If **PDFxTMDLib** is useful in your work, please cite:
-
-Valeshabadi, R.K., Rezaie, S. PDFxTMDLib: A High-Performance C++ Library for Collinear and Transverse Momentum-Dependent Parton Distribution Functions. *EPJ Res. Infrastruct.* **10**, 3 (2026). https://doi.org/10.1007/s41781-025-00157-0
+For a comprehensive understanding of the library's architecture, features, and performance benchmarks, please refer to the full paper available on arXiv: [https://arxiv.org/abs/2412.16680](https://arxiv.org/abs/2412.16680).
 
 ---
 

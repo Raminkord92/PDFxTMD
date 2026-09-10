@@ -5,8 +5,8 @@
 #pragma once
 #include "PDFxTMDLib/Common/Uncertainty.h"
 #include "PDFxTMDLib/GenericPDF.h"
-#include "PDFxTMDLib/Interface/ICPDF.h"
-#include "PDFxTMDLib/Interface/ITMD.h"
+#include "PDFxTMDLib/Interface/SPDF/ICPDF.h"
+#include "PDFxTMDLib/Interface/SPDF/ITMD.h"
 #include <PDFxTMDLib/Common/Exception.h>
 #include <PDFxTMDLib/Common/MathUtils.h>
 #include <PDFxTMDLib/Common/PDFErrInfo.h>
