@@ -1,7 +1,7 @@
 version: '{build}'
 
 image:
-  - Visual Studio 2019
+  - Visual Studio 2022
   - Ubuntu2204
   - macOS
 
@@ -9,28 +9,109 @@ configuration:
   - Release
 
 for:
+  # ============================================================
+  # Windows
+  # ============================================================
   - matrix:
       only:
-        - image: Visual Studio 2019
-    before_build:
-      - cmake -G "Visual Studio 16 2019" -A x64 -B build
-      - cmake -G "Visual Studio 16 2019" -A ARM64 -B build-arm64
-    build_script:
-      - cmake --build build --config %CONFIGURATION%
-      - cmake --build build-arm64 --config %CONFIGURATION%
+        - image: Visual Studio 2022
 
+    before_build:
+      # Make sure AppVeyor's vcpkg installation is ready.
+      - cmd: git -C C:\Tools\vcpkg fetch --all --prune
+      - cmd: C:\Tools\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+
+      # --------------------------------------------------------
+      # Windows x64:
+      # Full build with DPD + Zstd + oneDNN through vcpkg.
+      #
+      # The repository's vcpkg.json manifest will automatically
+      # install the "dpd" dependencies because ENABLE_DPD=ON.
+      # --------------------------------------------------------
+      - cmd: >
+          cmake
+          -S .
+          -B build
+          -G "Visual Studio 17 2022"
+          -A x64
+          -DCMAKE_TOOLCHAIN_FILE=C:/Tools/vcpkg/scripts/buildsystems/vcpkg.cmake
+          -DVCPKG_TARGET_TRIPLET=x64-windows
+          -DENABLE_DPD=ON
+          -DENABLE_BUILDING_WRAPPERS=OFF
+          -DENABLE_BUILDING_EXAMPLES=ON
+          -DENABLE_DOCUMENTATION=OFF
+
+      # --------------------------------------------------------
+      # Windows ARM64:
+      # The current DPD vcpkg feature supports x64 only,
+      # therefore test the core library without DPD here.
+      # --------------------------------------------------------
+      - cmd: >
+          cmake
+          -S .
+          -B build-arm64
+          -G "Visual Studio 17 2022"
+          -A ARM64
+          -DENABLE_DPD=OFF
+          -DENABLE_BUILDING_WRAPPERS=OFF
+          -DENABLE_BUILDING_EXAMPLES=ON
+          -DENABLE_DOCUMENTATION=OFF
+
+    build_script:
+      - cmd: cmake --build build --config %CONFIGURATION% --parallel 2
+      - cmd: cmake --build build-arm64 --config %CONFIGURATION% --parallel 2
+
+
+  # ============================================================
+  # Linux
+  # ============================================================
   - matrix:
       only:
         - image: Ubuntu2204
-    before_build:
-      - sh: cmake -DCMAKE_BUILD_TYPE=$CONFIGURATION -B build
-    build_script:
-      - sh: cmake --build build
 
+    install:
+      - sh: sudo apt-get update
+      - sh: sudo apt-get install -y software-properties-common
+      - sh: sudo add-apt-repository -y universe
+      - sh: sudo apt-get update
+      - sh: sudo apt-get install -y libzstd-dev libdnnl-dev
+
+    before_build:
+      - sh: >
+          cmake
+          -S .
+          -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DENABLE_DPD=ON
+          -DENABLE_BUILDING_WRAPPERS=OFF
+          -DENABLE_BUILDING_EXAMPLES=ON
+          -DENABLE_DOCUMENTATION=OFF
+
+    build_script:
+      - sh: cmake --build build --parallel 2
+
+
+  # ============================================================
+  # macOS
+  # ============================================================
   - matrix:
       only:
         - image: macOS
+
+    install:
+      - sh: brew install zstd onednn
+
     before_build:
-      - sh: cmake -DCMAKE_BUILD_TYPE=$CONFIGURATION -B build
+      - sh: >
+          cmake
+          -S .
+          -B build
+          -DCMAKE_BUILD_TYPE=Release
+          "-DCMAKE_PREFIX_PATH=$(brew --prefix zstd);$(brew --prefix onednn)"
+          -DENABLE_DPD=ON
+          -DENABLE_BUILDING_WRAPPERS=OFF
+          -DENABLE_BUILDING_EXAMPLES=OFF
+          -DENABLE_DOCUMENTATION=OFF
+
     build_script:
-      - sh: cmake --build build
+      - sh: cmake --build build --parallel 2
