@@ -2,7 +2,7 @@ version: '{build}'
 
 image:
   - Visual Studio 2022
-  - Ubuntu2204
+  - Ubuntu2404
   - macOS
 
 configuration:
@@ -17,21 +17,46 @@ for:
         - image: Visual Studio 2022
 
     before_build:
-      # Make sure AppVeyor's vcpkg installation is ready.
-      - cmd: git -C C:\Tools\vcpkg fetch --all --prune
-      - cmd: C:\Tools\vcpkg\bootstrap-vcpkg.bat -disableMetrics
-
-      # --------------------------------------------------------
-      # Windows x64:
-      # Full build with DPD + Zstd + oneDNN through vcpkg.
+      # AppVeyor provides vcpkg in C:\Tools\vcpkg.
       #
-      # The repository's vcpkg.json manifest will automatically
-      # install the "dpd" dependencies because ENABLE_DPD=ON.
-      # --------------------------------------------------------
-      - cmd: >
-          cmake
-          -S .
-          -B build
+      # Fetch the current repository and then check out exactly the
+      # builtin-baseline declared in this project's vcpkg.json.
+      #
+      # This is important because "git fetch" alone only updates the
+      # remote refs; it does not update the vcpkg working tree.
+      - ps: |
+          git -C C:\Tools\vcpkg fetch origin master
+
+          $baseline = (Get-Content -Raw vcpkg.json | ConvertFrom-Json).'builtin-baseline'
+
+          Write-Host "Using vcpkg baseline: $baseline"
+
+          git -C C:\Tools\vcpkg checkout --force $baseline
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "Failed to checkout vcpkg baseline $baseline"
+          }
+
+          & C:\Tools\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "Failed to bootstrap vcpkg"
+          }
+
+      # ----------------------------------------------------------
+      # Windows x64
+      #
+      # Full PDFxTMD build including DPD support.
+      #
+      # ENABLE_DPD automatically enables the "dpd" vcpkg manifest
+      # feature, which installs:
+      #
+      #   - zstd
+      #   - oneDNN
+      #
+      # ----------------------------------------------------------
+      - cmd: >-
+          cmake -S . -B build
           -G "Visual Studio 17 2022"
           -A x64
           -DCMAKE_TOOLCHAIN_FILE=C:/Tools/vcpkg/scripts/buildsystems/vcpkg.cmake
@@ -41,15 +66,15 @@ for:
           -DENABLE_BUILDING_EXAMPLES=ON
           -DENABLE_DOCUMENTATION=OFF
 
-      # --------------------------------------------------------
-      # Windows ARM64:
-      # The current DPD vcpkg feature supports x64 only,
-      # therefore test the core library without DPD here.
-      # --------------------------------------------------------
-      - cmd: >
-          cmake
-          -S .
-          -B build-arm64
+      # ----------------------------------------------------------
+      # Windows ARM64
+      #
+      # The current vcpkg "dpd" feature is explicitly x64-only.
+      # Therefore ARM64 is used to verify the portable core library
+      # and the non-DPD examples.
+      # ----------------------------------------------------------
+      - cmd: >-
+          cmake -S . -B build-arm64
           -G "Visual Studio 17 2022"
           -A ARM64
           -DENABLE_DPD=OFF
@@ -67,7 +92,7 @@ for:
   # ============================================================
   - matrix:
       only:
-        - image: Ubuntu2204
+        - image: Ubuntu2404
 
     install:
       - sh: sudo apt-get update
@@ -77,11 +102,10 @@ for:
       - sh: sudo apt-get install -y libzstd-dev libdnnl-dev
 
     before_build:
-      - sh: >
-          cmake
-          -S .
-          -B build
-          -DCMAKE_BUILD_TYPE=Release
+      # Full Linux build with DPD support.
+      - sh: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=$CONFIGURATION
           -DENABLE_DPD=ON
           -DENABLE_BUILDING_WRAPPERS=OFF
           -DENABLE_BUILDING_EXAMPLES=ON
@@ -102,15 +126,15 @@ for:
       - sh: brew install zstd onednn
 
     before_build:
-      - sh: >
-          cmake
-          -S .
-          -B build
-          -DCMAKE_BUILD_TYPE=Release
-          "-DCMAKE_PREFIX_PATH=$(brew --prefix zstd);$(brew --prefix onednn)"
+      # Explicitly provide the Homebrew package prefixes so CMake
+      # can reliably locate zstd and oneDNN.
+      - sh: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=$CONFIGURATION
+          -DCMAKE_PREFIX_PATH="$(brew --prefix zstd);$(brew --prefix onednn)"
           -DENABLE_DPD=ON
           -DENABLE_BUILDING_WRAPPERS=OFF
-          -DENABLE_BUILDING_EXAMPLES=OFF
+          -DENABLE_BUILDING_EXAMPLES=ON
           -DENABLE_DOCUMENTATION=OFF
 
     build_script:
