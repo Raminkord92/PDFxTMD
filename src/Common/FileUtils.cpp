@@ -5,16 +5,40 @@ bool FileUtils::HasUserAccess(const std::string &path)
 {
     try
     {
-        // Create a test file to verify write permissions
-        auto testPath = std::filesystem::path(path) / ".write_test";
-        std::ofstream file(testPath);
-        bool hasAccess = file.is_open();
-        file.close();
-        if (std::filesystem::exists(testPath))
+        const std::filesystem::path directory(path);
+        if (!std::filesystem::is_directory(directory))
         {
-            std::filesystem::remove(testPath);
+            return false;
         }
-        return hasAccess;
+
+        // Use a name that does not already exist so this probe never truncates
+        // or removes a user's pre-existing file.
+        std::filesystem::path testPath;
+        bool foundUnusedName = false;
+        for (unsigned int i = 0; i < 1024; ++i)
+        {
+            testPath = directory / (".pdfxtmd_write_test_" + std::to_string(i));
+            if (!std::filesystem::exists(testPath))
+            {
+                foundUnusedName = true;
+                break;
+            }
+        }
+        if (!foundUnusedName)
+        {
+            return false;
+        }
+
+        std::ofstream file(testPath, std::ios::out | std::ios::app);
+        if (!file.is_open())
+        {
+            return false;
+        }
+        file.close();
+
+        std::error_code ec;
+        std::filesystem::remove(testPath, ec);
+        return !ec;
     }
     catch (const std::filesystem::filesystem_error &)
     {

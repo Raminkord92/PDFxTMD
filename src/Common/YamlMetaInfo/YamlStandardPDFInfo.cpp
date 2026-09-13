@@ -81,7 +81,7 @@ std::pair<std::optional<YamlStandardTMDInfo>, ErrorType> YamlStandardPDFInfoRead
         PDFxTMDLOG << "[PDFxTMD][YamlInfoReader] XMax is not found "
                       "in yaml config file"
                    << std::endl;
-        return {std::nullopt, errorXMin};
+        return {std::nullopt, errorXMax};
     }
     output.XMax = *XMax;
 

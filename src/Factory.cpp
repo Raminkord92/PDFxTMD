@@ -175,7 +175,7 @@ TExtrapolator TExtrapolatorype(const std::string &type)
     {
         return TExtrapolator::TZeroExtrapolator;
     }
-    else if (type == "TExtrapolator")
+    else if (type == "TErrExtrapolator")
     {
         return TExtrapolator::TErrExtrapolator;
     }
@@ -213,7 +213,13 @@ ITMD GenericTMDFactory::mkTMD(const std::string &pdfSetName, int setMember)
     }
     TReader readerType;
     auto [impelmentationInfo, error] = YamlImpelemntationInfoReader(*infoPathPair.first);
-    if ((*impelmentationInfo).reader == "")
+    if (error != ErrorType::None || !impelmentationInfo.has_value())
+    {
+        throw InvalidFormatException("Unable to read implementation information from " +
+                                     *infoPathPair.first);
+    }
+    const auto &implementationInfo = *impelmentationInfo;
+    if (implementationInfo.reader == "")
     {
         if (format == "allflavorUpdf")
         {
@@ -226,11 +232,11 @@ ITMD GenericTMDFactory::mkTMD(const std::string &pdfSetName, int setMember)
     }
     else
     {
-        readerType = TReaderType((*impelmentationInfo).reader);
+        readerType = TReaderType(implementationInfo.reader);
     }
 
     TInterpolator interpolatorType;
-    if ((*impelmentationInfo).interpolator == "")
+    if (implementationInfo.interpolator == "")
     {
         if (format == "allflavorUpdf")
         {
@@ -243,16 +249,16 @@ ITMD GenericTMDFactory::mkTMD(const std::string &pdfSetName, int setMember)
     }
     else
     {
-        interpolatorType = TInterpolatorType((*impelmentationInfo).interpolator);
+        interpolatorType = TInterpolatorType(implementationInfo.interpolator);
     }
     TExtrapolator extrapolatorType;
-    if ((*impelmentationInfo).extrapolator == "")
+    if (implementationInfo.extrapolator == "")
     {
         extrapolatorType = TExtrapolator::TZeroExtrapolator;
     }
     else
     {
-        extrapolatorType = TExtrapolatorype((*impelmentationInfo).extrapolator);
+        extrapolatorType = TExtrapolatorype(implementationInfo.extrapolator);
     }
 
     if (readerType == TReader::TDefaultLHAPDF_TMDReader)
@@ -320,7 +326,13 @@ ICPDF GenericCPDFFactory::mkCPDF(const std::string &pdfSetName, int setMember)
     }
     CReader readerType;
     auto [impelmentationInfo, error] = YamlImpelemntationInfoReader(*infoPathPair.first);
-    auto selectedReader = (*impelmentationInfo).reader;
+    if (error != ErrorType::None || !impelmentationInfo.has_value())
+    {
+        throw InvalidFormatException("Unable to read implementation information from " +
+                                     *infoPathPair.first);
+    }
+    const auto &implementationInfo = *impelmentationInfo;
+    auto selectedReader = implementationInfo.reader;
     if (selectedReader == "")
     {
         readerType = CReader::CDefaultLHAPDFFileReader;
@@ -330,7 +342,7 @@ ICPDF GenericCPDFFactory::mkCPDF(const std::string &pdfSetName, int setMember)
         readerType = CReaderType(selectedReader);
     }
     CInterpolator interpolatorType;
-    auto selectedInterpolator = (*impelmentationInfo).interpolator;
+    auto selectedInterpolator = implementationInfo.interpolator;
     if (selectedInterpolator == "")
     {
         interpolatorType = CInterpolator::CLHAPDFBicubicInterpolator;
@@ -340,7 +352,7 @@ ICPDF GenericCPDFFactory::mkCPDF(const std::string &pdfSetName, int setMember)
         interpolatorType = CInterpolatorType(selectedInterpolator);
     }
     CExtrapolator extrapolatorType;
-    auto selectedExtrapolator = (*impelmentationInfo).extrapolator;
+    auto selectedExtrapolator = implementationInfo.extrapolator;
     if (selectedExtrapolator == "")
     {
         extrapolatorType = CExtrapolator::CContinuationExtrapolator;
@@ -365,14 +377,14 @@ ICPDF GenericCPDFFactory::mkCPDF(const std::string &pdfSetName, int setMember)
             else if (extrapolatorType == CExtrapolator::CErrExtrapolator)
             {
                 return ICPDF(GenericPDF<CollinearPDFTag, CDefaultLHAPDFFileReader,
-                                        CLHAPDFBilinearInterpolator<CDefaultLHAPDFFileReader>, CErrExtrapolator>(pdfSetName,
-                                                                                       setMember));
+                                        CLHAPDFBicubicInterpolator<CDefaultLHAPDFFileReader>, CErrExtrapolator>(
+                    pdfSetName, setMember));
             }
             else if (extrapolatorType == CExtrapolator::CNearestPointExtrapolator)
             {
                 return ICPDF(GenericPDF<CollinearPDFTag, CDefaultLHAPDFFileReader,
-                                        CLHAPDFBilinearInterpolator<CDefaultLHAPDFFileReader>,
-                                        CNearestPointExtrapolator<CLHAPDFBilinearInterpolator<CDefaultLHAPDFFileReader>>>(
+                                        CLHAPDFBicubicInterpolator<CDefaultLHAPDFFileReader>,
+                                        CNearestPointExtrapolator<CLHAPDFBicubicInterpolator<CDefaultLHAPDFFileReader>>>(
                     pdfSetName, setMember));
             }
         }
@@ -441,7 +453,13 @@ ICDPD GenericCDPDFactory::mkCDPD(const std::string &pdfSetName, int setMember)
     }
     CDReader readerType;
     auto [impelmentationInfo, error] = YamlImpelemntationInfoReader(*infoPathPair.first);
-    auto selectedReader = (*impelmentationInfo).reader;
+    if (error != ErrorType::None || !impelmentationInfo.has_value())
+    {
+        throw InvalidFormatException("Unable to read implementation information from " +
+                                     *infoPathPair.first);
+    }
+    const auto &implementationInfo = *impelmentationInfo;
+    auto selectedReader = implementationInfo.reader;
     if (selectedReader == "")
     {
         readerType = CDReader::CDefaultDPDReader;
@@ -451,7 +469,7 @@ ICDPD GenericCDPDFactory::mkCDPD(const std::string &pdfSetName, int setMember)
         readerType = CDReaderType(selectedReader);
     }
     CDInterpolator interpolatorType;
-    auto selectedInterpolator = (*impelmentationInfo).interpolator;
+    auto selectedInterpolator = implementationInfo.interpolator;
     if (selectedInterpolator == "")
     {
         interpolatorType = CDInterpolator::CPDFxTMDDPDInterpolator;
@@ -461,7 +479,7 @@ ICDPD GenericCDPDFactory::mkCDPD(const std::string &pdfSetName, int setMember)
         interpolatorType = CDInterpolatorType(selectedInterpolator);
     }
     CDExtrapolator extrapolatorType;
-    auto selectedExtrapolator = (*impelmentationInfo).extrapolator;
+    auto selectedExtrapolator = implementationInfo.extrapolator;
     if (selectedExtrapolator == "")
     {
         extrapolatorType = CDExtrapolator::CDPDZeroExtrapolator;
@@ -500,7 +518,7 @@ IQCDCoupling CouplingFactory::mkCoupling(const std::string &pdfSetName)
     }
     std::pair<std::optional<YamlCouplingInfo>, ErrorType> couplingInfo =
         YamlCouplingInfoReader(*pdfSetInfo.first);
-    if (couplingInfo.second != ErrorType::None)
+    if (couplingInfo.second != ErrorType::None || !couplingInfo.first.has_value())
     {
         throw std::runtime_error("Coupling info not found!");
     }

@@ -168,7 +168,7 @@ setup(
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3.6",
+    python_requires=">=3.9",
     ext_modules=[CMakeExtension("pdfxtmd", sourcedir=".")],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,

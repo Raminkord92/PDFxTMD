@@ -75,7 +75,7 @@ struct DefaultAllFlavorShape
         else if (id == 21)
             return _lookup[0 + 6];
         else if (id == 22)
-            return _lookup[13];
+            return _lookup[13 + 6];
         else
             return findPidInPids(id, _pids);
     }

@@ -43,6 +43,16 @@ std::pair<double, double> CDefaultLHAPDFFileReader::getBoundaryValues(
 
 void CDefaultLHAPDFFileReader::read(const std::string &pdfName, int setNumber)
 {
+    // A reader instance may be reused for multiple members/sets.
+    // Reset all accumulated state before starting a new parse.
+    m_pdfShape.clear();
+    m_pdfShape_flat = DefaultAllFlavorShape{};
+    m_mu2CompTotal.clear();
+    m_blockNumber = 0;
+    m_blockLine = 0;
+    m_xMinMax = {};
+    m_q2MinMax = {};
+
     auto filePathPair = StandardPDFSetPath(pdfName, setNumber);
     if (filePathPair.second != ErrorType::None)
     {
@@ -56,13 +66,11 @@ void CDefaultLHAPDFFileReader::read(const std::string &pdfName, int setNumber)
     }
 
     auto pdfStandardInfo = YamlStandardPDFInfoReader(*infoPathPair.first);
-    if (pdfStandardInfo.second != ErrorType::None)
+    if (pdfStandardInfo.second != ErrorType::None || !pdfStandardInfo.first.has_value())
     {
         throw InvalidFormatException("File " + *infoPathPair.first +
-                                     " is not a standard info UPDF file");
+                                     " is not a standard info PDF file");
     }
-
-    YamlStandardPDFInfo standardPDFInfo = *pdfStandardInfo.first;
     std::ifstream file(*filePathPair.first);
     if (!file.is_open())
     {
@@ -103,6 +111,27 @@ void CDefaultLHAPDFFileReader::read(const std::string &pdfName, int setNumber)
         std::remove_if(m_pdfShape.begin(), m_pdfShape.end(),
                        [](const DefaultAllFlavorShape &shape) { return shape._pids.empty(); }),
         m_pdfShape.end());
+
+    if (m_pdfShape.empty())
+    {
+        throw InvalidFormatException("PDF grid contains no valid data blocks");
+    }
+
+    for (const auto &pdfData_ : m_pdfShape)
+    {
+        const size_t expectedValues = pdfData_.x_vec.size() * pdfData_.mu2_vec.size();
+        for (int pid : pdfData_._pids)
+        {
+            const auto it = pdfData_.grids.find(static_cast<PartonFlavor>(pid));
+            if (it == pdfData_.grids.end() || it->second.size() != expectedValues)
+            {
+                throw InvalidFormatException(
+                    "PDF grid contains an incomplete flavor table for PID " +
+                    std::to_string(pid));
+            }
+        }
+    }
+
     for (auto &pdfData_ : m_pdfShape)
     {
         pdfData_.finalizeXP2();
@@ -170,9 +199,10 @@ void CDefaultLHAPDFFileReader::read(const std::string &pdfName, int setNumber)
         }
     }
     m_pdfShape_flat.grids.clear();
-    // After processing all data, set the boundary values once
-    const auto& x_vec_ = m_pdfShape[0].x_vec;
-    if (!m_pdfShape.empty() && !x_vec_.empty())
+    // After processing all data, set the boundary values once.
+    // m_pdfShape was validated as non-empty above.
+    const auto &x_vec_ = m_pdfShape.front().x_vec;
+    if (!x_vec_.empty())
     {
         m_xMinMax = {x_vec_.front(), x_vec_.back()};
     }
@@ -199,9 +229,9 @@ void CDefaultLHAPDFFileReader::readXKnots(NumParser &parser, DefaultAllFlavorSha
         data.x_vec.emplace_back(value);
     }
 
-    if (data.x_vec.empty())
+    if (data.x_vec.size() < 2)
     {
-        throw std::runtime_error("No x knots found in grid");
+        throw std::runtime_error("At least two x knots are required in each grid block");
     }
 }
 
@@ -214,9 +244,9 @@ void CDefaultLHAPDFFileReader::readQ2Knots(NumParser &parser, DefaultAllFlavorSh
         data.mu2_vec.emplace_back(value * value); // Store Q²
     }
 
-    if (data.mu2_vec.empty())
+    if (data.mu2_vec.size() < 2)
     {
-        throw std::runtime_error("No Q² knots found in grid");
+        throw std::runtime_error("At least two Q² knots are required in each grid block");
     }
 }
 

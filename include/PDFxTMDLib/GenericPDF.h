@@ -3,13 +3,15 @@
 #include "PDFxTMDLib/Common/Exception.h"
 #include "PDFxTMDLib/Common/PDFUtils.h"
 #include "PDFxTMDLib/Common/PartonUtils.h"
+#ifdef PDFXTMD_HAS_DPD
 #include "PDFxTMDLib/Implementation/Extrapolator/Collinear/DPD/CDPDZeroExtrapolator.h"
+#include "PDFxTMDLib/Implementation/Interpolator/Collinear/DPD/CPDFxTMDDPDInterpolator.h"
+#include "PDFxTMDLib/Implementation/Reader/Collinear/DPD/CDefaultDPDReader.h"
+#endif
 #include "PDFxTMDLib/Implementation/Extrapolator/Collinear/SPDF/CContinuationExtrapolator.h"
 #include "PDFxTMDLib/Implementation/Extrapolator/TMD/SPDF/TZeroExtrapolator.h"
-#include "PDFxTMDLib/Implementation/Interpolator/Collinear/DPD/CPDFxTMDDPDInterpolator.h"
 #include "PDFxTMDLib/Implementation/Interpolator/Collinear/SPDF/CLHAPDFBicubicInterpolator.h"
 #include "PDFxTMDLib/Implementation/Interpolator/TMD/SPDF/TTrilinearInterpolator.h"
-#include "PDFxTMDLib/Implementation/Reader/Collinear/DPD/CDefaultDPDReader.h"
 #include "PDFxTMDLib/Implementation/Reader/Collinear/SPDF/CDefaultLHAPDFFileReader.h"
 #include "PDFxTMDLib/Implementation/Reader/TMD/SPDF/TDefaultLHAPDF_TMDReader.h"
 #include "PDFxTMDLib/Interface/IExtrapolator.h"
@@ -71,12 +73,14 @@ template <> struct DefaultPDFImplementations<CollinearPDFTag>
     using Extrapolator = CContinuationExtrapolator<CLHAPDFBicubicInterpolator<Reader>>;
 };
 
+#ifdef PDFXTMD_HAS_DPD
 template <> struct DefaultPDFImplementations<CollinearDPDTag>
 {
     using Reader = CDefaultDPDReader;
     using Interpolator = CPDFxTMDDPDInterpolator<Reader>;
     using Extrapolator = CDPDZeroExtrapolator;
 };
+#endif
 
 template <typename Tag, typename Reader = typename DefaultPDFImplementations<Tag>::Reader,
           typename Interpolator = typename DefaultPDFImplementations<Tag>::Interpolator,
@@ -298,7 +302,7 @@ class GenericPDF
                       std::is_same_v<Tag, CollinearDPDTag>)
         {
             auto pdfStandardInfo = YamlStandardPDFInfoReader(*infoPathPair.first);
-            if (pdfStandardInfo.second != ErrorType::None)
+            if (pdfStandardInfo.second != ErrorType::None || !pdfStandardInfo.first.has_value())
                 throw InvalidFormatException("Invalid standard info file " + *infoPathPair.first);
             m_stdInfo = *pdfStandardInfo.first;
         }
@@ -330,6 +334,8 @@ class GenericPDF
 // Convenient type aliases for common use cases
 using TMDPDF = GenericPDF<TMDPDFTag>;
 using CollinearPDF = GenericPDF<CollinearPDFTag>;
+#ifdef PDFXTMD_HAS_DPD
 using CollinearDPD = GenericPDF<CollinearDPDTag>;
+#endif
 
 } // namespace PDFxTMD
