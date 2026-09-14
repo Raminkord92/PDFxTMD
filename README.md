@@ -46,17 +46,6 @@ This installs into `installed` inside the repository. For vcpkg, add the toolcha
 settings from the linked workflow. To build without dense or hybrid DPD support, set
 `-DENABLE_DPD=OFF`.
 
-## API documentation
-
-Generate the public API documentation directly into the website checkout:
-
-```bash
-cmake -S . -B build -DPDFXTMD_DOXYGEN_HTML_OUTPUT=/path/to/pdfxtmd_website/docs
-cmake --build build --target doxygen
-```
-
-The `doxygen` target documents the public headers and writes HTML to the configured directory.
-
 -----
 
 ## C++ Usage and API
