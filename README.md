@@ -1,8 +1,7 @@
 <img src="./logo.png" alt="PDFxTMDLib Logo" width="300">
 
-[![Build status: Windows](https://ci.appveyor.com/api/projects/status/github/Raminkord92/PDFxTMD?branch=main&svg=true&job=Image:Visual%20Studio%202019)](https://ci.appveyor.com/project/Raminkord92/PDFxTMD)
-[![Build status: Linux](https://ci.appveyor.com/api/projects/status/github/Raminkord92/PDFxTMD?branch=main&svg=true&job=Image:Ubuntu2204)](https://ci.appveyor.com/project/Raminkord92/PDFxTMD)
-[![Build status: macOS](https://ci.appveyor.com/api/projects/status/github/Raminkord92/PDFxTMD?branch=main&svg=true&job=Image:macOS)](https://ci.appveyor.com/project/Raminkord92/PDFxTMD)
+[![C++ CI](https://github.com/Raminkord92/PDFxTMD/actions/workflows/cpp-ci.yml/badge.svg)](https://github.com/Raminkord92/PDFxTMD/actions/workflows/cpp-ci.yml)
+[![Python Wheels](https://github.com/Raminkord92/PDFxTMD/actions/workflows/python-wheels.yml/badge.svg)](https://github.com/Raminkord92/PDFxTMD/actions/workflows/python-wheels.yml)
 
 **PDFxTMDLib** is a high-performance C++ library for parton distribution functions (PDFs), supporting both collinear PDFs (cPDFs) and transverse momentum-dependent PDFs (TMDs). It is designed with modern C++17 principles for performance and extensibility, and provides interfaces for reading standard PDF grid files (LHAPDF, TMDLib) as well as custom formats.
 
