@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
   "name": "pdfxtmd",
-  "version-string": "2.0.0",
+  "version-string": "2.0.1",
   "description": "Parton distribution functions with collinear PDF and TMD interfaces",
   "homepage": "https://github.com/Raminkord92/PDFxTMD",
   "builtin-baseline": "a1cae005c39be7b18ba319fced856b68d7276271",
