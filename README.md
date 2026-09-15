@@ -338,6 +338,20 @@ The `paths` key accepts a list of directories where PDFxTMDLib will search for P
 
 -----
 
+## Citation
+
+When PDFxTMDLib contributes to published work, please cite:
+
+> R. K. Valeshabadi and S. Rezaie, “PDFxTMDLib: A High-Performance C++ Library for Collinear and Transverse Momentum-Dependent Parton Distribution Functions,” *EPJ Research Infrastructures* **10**, 3 (2026). DOI: [10.1007/s41781-025-00157-0](https://doi.org/10.1007/s41781-025-00157-0).
+
+If you use the DPD grids or the hybrid DPD grid provided by PDFxTMDLib, please also cite both papers below:
+
+> R. Kord Valeshabadi, S. Rezaie, and K. Azizi, “Numerical Study of MRW-Type Unintegrated Double Parton Distribution Functions from Non-Factorized DPDFs,” *Eur. Phys. J. C* **86**, 1002 (2026). DOI: [10.1140/epjc/s10052-026-16264-0](https://doi.org/10.1140/epjc/s10052-026-16264-0). [arXiv:2605.15853](https://arxiv.org/abs/2605.15853)
+
+> R. Kord Valeshabadi and S. Rezaie, “Reliable Hybrid Neural Surrogates for Multidimensional Grids: Application to Double Parton Distributions,” [arXiv:2609.14048](https://arxiv.org/abs/2609.14048) [hep-ph] (2026).
+
+-----
+
 ## Visualization Tools
 
 For easy visualization of PDFs and TMDs, you can use the [QtPDFxTMDPlotter](https://github.com/Raminkord92/QtPDFxTMDPlotter), a Qt-based graphical tool built on top of PDFxTMDLib.
