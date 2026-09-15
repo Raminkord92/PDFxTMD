@@ -2,6 +2,16 @@ name: Python wheels
 
 on:
   pull_request:
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'wrappers/**'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - 'pyproject.toml'
+      - 'setup.py'
+      - 'vcpkg.json'
+      - '.github/workflows/**'
   push:
     tags:
       - "v*"

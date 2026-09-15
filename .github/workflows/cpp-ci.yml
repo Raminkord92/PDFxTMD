@@ -4,7 +4,25 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'wrappers/**'
+      - 'cmake/**'
+      - 'examples/**'
+      - 'CMakeLists.txt'
+      - 'vcpkg.json'
+      - '.github/workflows/**'
   pull_request:
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'wrappers/**'
+      - 'cmake/**'
+      - 'examples/**'
+      - 'CMakeLists.txt'
+      - 'vcpkg.json'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:
