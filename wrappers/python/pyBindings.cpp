@@ -1,3 +1,4 @@
+#include "pyPDFSet.h"
 #include "PDFxTMDLib/Factory.h"
 #include "PDFxTMDLib/GenericPDF.h"
 #include "PDFxTMDLib/Interface/IQCDCoupling.h"
@@ -1050,4 +1051,5 @@ PYBIND11_MODULE(pdfxtmd, m)
             py::arg("x2"),
             py::arg("mu2_2"));
 #endif
+    bind_pdf_sets(m);
 }

@@ -1,0 +1,39 @@
+name: Python binding tests
+
+on:
+  push:
+    branches: [main]
+    paths: ['wrappers/**', 'include/**', 'src/**', 'tests/python/**', 'setup.py', 'pyproject.toml', 'CMakeLists.txt', '.github/workflows/python-bindings.yml']
+  pull_request:
+    paths: ['wrappers/**', 'include/**', 'src/**', 'tests/python/**', 'setup.py', 'pyproject.toml', 'CMakeLists.txt', '.github/workflows/python-bindings.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        dpd: ['ON', 'OFF']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libzstd-dev libdnnl-dev
+          python -m pip install setuptools wheel pybind11 pytest numpy
+      - name: Build extension
+        env:
+          PDFXTMD_ENABLE_DPD: ${{ matrix.dpd }}
+          CMAKE_BUILD_PARALLEL_LEVEL: '2'
+        run: python setup.py build_ext --inplace
+      - name: Run integration tests against built extension
+        run: |
+          export PYTHONPATH="$PWD/src"
+          python -c 'import pdfxtmd; print(pdfxtmd.__file__)'
+          python -m pytest tests/python -v

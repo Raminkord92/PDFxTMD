@@ -24,8 +24,7 @@ def main():
     print("\n--- Accessing Metadata from CPDFSet ---")
     std_info = cpdf_set.getStdPDFInfo()
     err_info = cpdf_set.getPDFErrorInfo()
-    config = cpdf_set.info()
-    print(f"Description: {config.get_string('SetDesc')}")
+    print(f"Description: {std_info.SetDesc}")
     print(f"NumMembers: {std_info.NumMembers}")
     print(f"Error Type: {err_info.ErrorType}")
     print(f"Error Confidence Level: {err_info.ErrorConfLevel}%")
@@ -91,8 +90,8 @@ def main():
     print("Up quark PDF:", cpdf_member.pdf(pdfxtmd.PartonFlavor.u, x, mu2))
     print("Gluon PDF:", cpdf_member.pdf(pdfxtmd.PartonFlavor.g, x, mu2))
 
-    # 3. Evaluate all flavors at once (returns a numpy array)
-    all_flavors_cpdf = cpdf_member.pdf(x, mu2)
+    # 3. Evaluate all flavors at once (returns a list)
+    all_flavors_cpdf = cpdf_member.pdf_all(x, mu2)
     print("All flavors (CPDF):", all_flavors_cpdf)
 
 
@@ -106,7 +105,7 @@ def main():
     print("Up quark TMD:", tmd_member.tmd(pdfxtmd.PartonFlavor.u, x, kt2, mu2))
 
     # 6. Evaluate all TMD flavors at once
-    all_flavors_tmd = tmd_member.tmd(x, kt2, mu2)
+    all_flavors_tmd = tmd_member.tmd_all(x, kt2, mu2)
     print("All flavors (TMD):", all_flavors_tmd)
 
 

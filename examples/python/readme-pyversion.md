@@ -59,7 +59,7 @@ import pdfxtmd
 
 # 1. Initialize a TMDSet
 tmd_set = pdfxtmd.TMDSet("PB-NLO-HERAI+II-2018-set2")
-print(f"\nLoaded TMD Set: {tmd_set.info().get_string('SetDesc')} with {len(tmd_set)} members.")
+print(f"\nLoaded TMD Set: {tmd_set.getStdPDFInfo().SetDesc} with {len(tmd_set)} members.")
 
 # 2. Define kinematics
 x = 0.01
@@ -92,8 +92,8 @@ cpdf = cpdf_factory.mkCPDF("CT18NLO", 0) # Get member 0
 up_pdf = cpdf.pdf(pdfxtmd.PartonFlavor.u, x, mu2)
 print(f"CPDF (Up Quark) from Factory: {up_pdf:.6f}")
 
-# Evaluate all flavors at once (returns a numpy array)
-all_flavors_cpdf = cpdf.pdf(x, mu2)
+# Evaluate all flavors at once (returns a list)
+all_flavors_cpdf = cpdf.pdf_all(x, mu2)
 print(f"All CPDF Flavors from Factory: {all_flavors_cpdf}")
 
 
@@ -105,8 +105,8 @@ tmd = tmd_factory.mkTMD("PB-NLO-HERAI+II-2018-set2", 0) # Get member 0
 gluon_tmd = tmd.tmd(pdfxtmd.PartonFlavor.g, x, kt2, mu2)
 print(f"\nTMD (Gluon) from Factory: {gluon_tmd:.6f}")
 
-# Evaluate all TMD flavors at once (returns a numpy array)
-all_flavors_tmd = tmd.tmd(x, kt2, mu2)
+# Evaluate all TMD flavors at once (returns a list)
+all_flavors_tmd = tmd.tmd_all(x, kt2, mu2)
 print(f"All TMD Flavors from Factory: {all_flavors_tmd}")
 ```
 
@@ -189,7 +189,7 @@ import matplotlib.pyplot as plt
 
 # --- Part 1: Collinear PDF (cPDF) ---
 cpdf_set = pdfxtmd.CPDFSet("CT18NLO")
-print(f"Loaded cPDF set: {cpdf_set.info().get_string('SetDesc')}")
+print(f"Loaded cPDF set: {cpdf_set.getStdPDFInfo().SetDesc}")
 
 x_values = np.logspace(-4, -1, 100)
 mu2 = 1000
@@ -203,7 +203,7 @@ lower_band = [u.central - u.errminus for u in uncertainties]
 # Plot the cPDF
 plt.figure(figsize=(10, 6))
 plt.plot(x_values, central_pdfs, label='Gluon PDF (CT18NLO)', color='blue')
-plt.fill_between(x_values, lower_band, upper_band, color='blue', alpha=0.2, label='68% CL Uncertainty')
+plt.fill_between(x_values, lower_band, upper_band, color='blue', alpha=0.2, label='Native CL Uncertainty')
 plt.xscale('log')
 plt.xlabel('$x$')
 plt.ylabel('$xg(x, \mu^2)$')
@@ -217,7 +217,7 @@ plt.close()
 
 # --- Part 2: Transverse Momentum-Dependent PDF (TMD) ---
 tmd_set = pdfxtmd.TMDSet("PB-LO-HERAI+II-2020-set2")
-print(f"Loaded TMD set: {tmd_set.info().get_string('SetDesc')}")
+print(f"Loaded TMD set: {tmd_set.getStdPDFInfo().SetDesc}")
 
 kt2 = 1
 
@@ -230,7 +230,7 @@ tmd_lower_band = [u.central - u.errminus for u in tmd_uncertainties]
 # Plot the TMD
 plt.figure(figsize=(10, 6))
 plt.plot(x_values, central_tmds, label='Gluon TMD (PB-LO-2020)', color='green')
-plt.fill_between(x_values, tmd_lower_band, tmd_upper_band, color='green', alpha=0.2, label='68% CL Uncertainty')
+plt.fill_between(x_values, tmd_lower_band, tmd_upper_band, color='green', alpha=0.2, label='Native CL Uncertainty')
 plt.xscale('log')
 plt.xlabel('$x$')
 plt.ylabel('$xg(x, k_t^2, \mu^2)$')
@@ -283,3 +283,55 @@ This project is licensed under the GNU General Public License v3.0. See the `LIC
 ## Contact
 
 For questions or contributions, please contact [raminkord92@gmail.com](mailto:raminkord92@gmail.com).
+
+## High-level set API and source builds
+
+`CPDFSet(pdfSetName, alternativeReplicaUncertainty=False)` and
+`TMDSet(pdfSetName, alternativeReplicaUncertainty=False)` expose the existing
+C++ `PDFSet` specializations. `len(pdf_set)` gives the member count;
+`pdf_set[i]` returns an `ICPDF` or `ITMD` with the same evaluation methods as
+factory-created members. Indices must satisfy `0 <= i < len(pdf_set)`;
+negative and out-of-range indices raise `IndexError`.
+
+A returned member keeps its owning set alive, including with temporary sets:
+
+```python
+import gc
+central = pdfxtmd.CPDFSet("CT18NLO")[0]
+gc.collect()
+print(central.pdf(pdfxtmd.PartonFlavor.g, 0.01, 100.0))
+```
+
+`Uncertainty(flavor, x, mu2, cl=-1)` for collinear sets and
+`Uncertainty(flavor, x, kt2, mu2, cl=-1)` for TMD sets return a
+`PDFUncertainty`. The default `cl=-1` uses the set's native confidence level;
+pass `cl=68.0` explicitly to request 68 percent. `Uncertainty(values, cl=-1)`
+accepts one value per member. Results expose `central`, `errplus`, `errminus`,
+`errsymm`, `scale`, the `errplus_pdf`/`errminus_pdf`/`errsymm_pdf` and
+`errplus_par`/`errminus_par`/`errsymm_par` components, and `errparts`.
+Their definitions and scaling are those of the C++ implementation.
+
+`Correlation(flavorA, xA, mu2A, flavorB, xB, mu2B)` has additional `kt2A`
+and `kt2B` arguments before the corresponding scales for TMDs.
+`Correlation(valuesA, valuesB)` accepts two full member vectors.
+`alphasQ(q)` and `alphasQ2(q2)` evaluate the set's coupling.
+`getStdPDFInfo()` and `getPDFErrorInfo()` return metadata snapshots with the
+C++ field names. Use `getStdPDFInfo().SetDesc` for the description.
+All-flavor evaluation uses `member.pdf_all(x, mu2)` or
+`member.tmd_all(x, kt2, mu2)` and returns a list; the existing overloads
+accepting an output list are also supported.
+
+To install these bindings from a patched source checkout on Linux:
+
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+# Install libzstd-dev and libdnnl-dev for the default DPD-enabled build.
+CMAKE_BUILD_PARALLEL_LEVEL=2 python -m pip install .
+# Or build without DPD dependencies:
+# PDFXTMD_ENABLE_DPD=OFF CMAKE_BUILD_PARALLEL_LEVEL=2 python -m pip install .
+```
+
+PDF grid data must be installed separately. For development builds and tests
+against the freshly compiled extension, see `tests/python/README.md`.
