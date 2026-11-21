@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## [2.0.3] - 2026-11-21
+
+### Fixed
+
+- Corrected collinear bicubic PDF evaluation at lower and upper Q² grid boundaries:
+  scalar `pdf()` and all-flavor `pdf_all()` now use consistent interpolation.
+- Preserved cubic interpolation in log(x) at Q² boundaries instead of
+  unexpectedly switching scalar evaluations to linear log(x) interpolation.
+  This removes the spurious x-slope discontinuity caused by that fallback.
+- Made the bicubic Q² boundary treatment safe for two-knot grids and grids
+  containing repeated Q² knots, without reading an unavailable third knot.
+
+### Tests
+
+- Added native C++ regression coverage for scalar/all-flavor consistency,
+  regular and degenerate Q² grids, and x-slope continuity at the lower scale.
+- Added a Python regression check for the installed extension.
+
+### Packaging
+
+- Synchronized release versions across CMake, Python package metadata, and
+  the vcpkg manifest at `2.0.3`.
+
+
 ## [2.0.1] - 2026-09-15
 
 ### Fixed

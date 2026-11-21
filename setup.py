@@ -151,7 +151,7 @@ class CMakeBuild(build_ext):
 
 setup(
     name="pdfxtmd",
-    version="2.0.2",
+    version="2.0.3",
     author="Ramin Kord Valeshabadi",
     author_email="raminkord92@gmail.com",
     description=(

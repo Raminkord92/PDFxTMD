@@ -111,6 +111,12 @@ inline double _interpolate(const DefaultAllFlavorShape &grid, size_t ix, size_t 
     double vh = _interpolateCubic(_share.tlogx, _share.tlogx2, _share.tlogx3,
                                   &grid.coeff(ix, iq2 + 1, flavorId, 0));
 
+
+    if (_share.q2_lower && _share.q2_upper)
+    {
+        return vl + _share.tlogq * (vh - vl);
+    }
+
     double vdiff = vh - vl;
     double vdl, vdh;
     if (_share.q2_lower)
@@ -140,20 +146,6 @@ inline double _interpolate(const DefaultAllFlavorShape &grid, size_t ix, size_t 
     return _interpolateCubic(_share.tlogq, _share.tlogq2, _share.tlogq3, vl, vdl, vh, vdh);
 }
 
-inline double _interpolateFallback(const DefaultAllFlavorShape &grid, size_t ix, size_t iq2,
-                                   PartonFlavor flavor, shared_data &_share)
-{
-    int flavorId = grid.get_pid(static_cast<int>(flavor));
-    if (flavorId == -1)
-        return 0.0;
-
-    double f_ql = grid.xf(ix, iq2, flavorId) +
-                  (_share.tlogx * (grid.xf(ix + 1, iq2, flavorId) - grid.xf(ix, iq2, flavorId)));
-    double f_qh =
-        grid.xf(ix, iq2 + 1, flavorId) +
-        (_share.tlogx * (grid.xf(ix + 1, iq2 + 1, flavorId) - grid.xf(ix, iq2 + 1, flavorId)));
-    return f_ql + (_share.tlogq * (f_qh - f_ql));
-}
 template <class Reader>
 void CLHAPDFBicubicInterpolator<Reader>::initialize(const IReader<Reader> *reader)
 {
@@ -181,19 +173,12 @@ void CLHAPDFBicubicInterpolator<Reader>::interpolate(double x, double mu2,
 {
     const size_t ix = indexbelow(x, m_Shape.x_vec);
     const size_t imu2 = indexbelow(mu2, m_Shape.mu2_vec);
-    shared_data shared = fillBicubic(m_Shape, x, mu2, ix, imu2);
     _checkGridSize(m_Shape, ix, imu2);
-    size_t i = 0;
-    for (i = 0; i < DEFAULT_TOTAL_PDFS; i++)
+    shared_data shared = fillBicubic(m_Shape, x, mu2, ix, imu2);
+    for (size_t i = 0; i < DEFAULT_TOTAL_PDFS; ++i)
     {
-        if (!shared.q2_lower || !shared.q2_upper)
-        {
-            output[i] = _interpolate(m_Shape, ix, imu2, standardPartonFlavors[i], shared);
-        }
-        else
-        {
-            output[i] = _interpolateFallback(m_Shape, ix, imu2, standardPartonFlavors[i], shared);
-        }
+        // Use exactly the same interpolation path as the scalar API.
+        output[i] = _interpolate(m_Shape, ix, imu2, standardPartonFlavors[i], shared);
     }
 }
 template <class Reader>
@@ -203,8 +188,7 @@ double CLHAPDFBicubicInterpolator<Reader>::interpolate(PartonFlavor flavor, doub
     const size_t imu2 = indexbelow(mu2, m_Shape.mu2_vec);
     _checkGridSize(m_Shape, ix, imu2);
     shared_data shared = fillBicubic(m_Shape, x, mu2, ix, imu2);
-    return (shared.q2_edge == 0) ? _interpolate(m_Shape, ix, imu2, flavor, shared)
-                                 : _interpolateFallback(m_Shape, ix, imu2, flavor, shared);
+    return _interpolate(m_Shape, ix, imu2, flavor, shared);
 }
 
 } // namespace PDFxTMD
